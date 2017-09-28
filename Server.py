@@ -1,3 +1,30 @@
+from playground.network.packet import PacketType
+from playground.network.packet.fieldtypes import STRING,INT, BOOL, UINT32, ListFieldType, UINT8, UINT16, BUFFER
+from playground.network.packet.fieldtypes.attributes import Optional
+import asyncio
+import random
+from playground.network.common.Protocol import StackingProtocol, StackingTransport, StackingProtocolFactory
+import playground
+
+#TCP Packet
+class PEEP(PacketType):
+
+    DEFINITION_IDENTIFIER = "PEEP.Packet"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+
+        ("type", UINT8),
+
+        ("sequenceNumber", UINT32({Optional: "True"})),
+
+        ("checksum", UINT16),
+
+        ("acknowledgement", UINT32({Optional: True})),
+
+        ("data", BUFFER({Optional: True}))
+    ]
+
 class PEEPServerProtocol(asyncio.Protocol):
     serverstate = 0
     clientseq = 0
@@ -7,10 +34,10 @@ class PEEPServerProtocol(asyncio.Protocol):
         self.deserializer = PacketType.Deserializer()
         self.transport = None
 
-    def tcp_checksum(instance):
+    def tcp_checksum(self, instance):
         # instead of concat 16-bit words, we use data that is a multiple of 16
         # (i.e. 576, the whole segment)
-        all_text = str(instance.type) + str(instance.sequenceNumber) + str(instance.acknowledgement) + instance.data
+        all_text = str(instance.type) + str(instance.sequencenumber) + str(instance.acknowledgement) + str(instance.data)
         sum = 0
         for i in range((0), len(all_text) - 1, 2):
             # get unicode/byte values of operands
@@ -27,8 +54,8 @@ class PEEPServerProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         print("PEEP Server connection_made is called")
         self.transport = transport
-        higherTransport = StackingTransport(self.transport)
-        self.higherProtocol().connection_made(higherTransport)
+        #higherTransport = StackingTransport(self.transport)
+        #self.higherProtocol().connection_made(higherTransport)
 
     def data_received(self, data):
         print("PEEP Server data_received is called")
@@ -37,6 +64,7 @@ class PEEPServerProtocol(asyncio.Protocol):
             # CheckSUM Check
             # SYN from client
             if pkt.type == 0 and self.serverstate == 0:
+                print("SYN packet received from Client.")
                 self.serverstate += 1
                 self.clientseq = pkt.sequencenumber
                 if(pkt.checksum == self.tcp_checksum(pkt)):
@@ -49,6 +77,8 @@ class PEEPServerProtocol(asyncio.Protocol):
                     self.transport.write(synack.__serialize__())
                 else:
                     print("Checksum error. Packet data corrupt.")
+                    self.transport.close()
+
             elif pkt.type == 2 and self.serverstate == 1 and pkt.sequencenumber == self.clientseq + 1 and pkt.acknowledgement == self.serverseq + 1:
                 # Data transmission can start
                 self.serverstate += 1
@@ -56,8 +86,25 @@ class PEEPServerProtocol(asyncio.Protocol):
                     print("TCP Connection successfull. Client OK to send the data now.")
                 else:
                     print("Corrupt ACK packet. Please check on client end.")
+                    self.transport.close()
+
                 self.higherProtocol().data_received(data)
             # Reset packet received
             elif pkt.Type == 5:
                 print("Server received connection close from client. Closing socket.")
                 self.transport.close()
+
+
+
+if __name__ == "__main__":
+
+    loop = asyncio.get_event_loop()
+    conn = playground.getConnector().create_playground_server(lambda: PEEPServerProtocol(loop) , 7344)
+    server = loop.run_until_complete(conn)
+    print("Echo Server Started at {}".format(server.sockets[0].gethostname()))
+    print('\nPress Ctrl+C to terminate the process')
+    try:
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    loop.close()
