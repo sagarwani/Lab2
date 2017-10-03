@@ -134,7 +134,7 @@ class ShopClientProtocol(asyncio.Protocol):
         print('Stop the event loop')
         self.transport = None
 
-
+'''
 class Passthrough1(StackingProtocol, StackingTransport):
 
     def __init__(self):
@@ -157,6 +157,30 @@ class Passthrough1(StackingProtocol, StackingTransport):
     def connection_lost(self, exc):
         print('Passthrough1 client connection_lost called')
         self.transport = None
+
+class Passthrough1Transport(StackingTransport):
+
+    def __init__(self,transport):
+        #self.protocol=protocol
+        self.transport = transport
+        super().__init__(self.transport)
+
+    def write(self, data):
+        print("Calling Passthrough1 Transport write")
+        self.transport.write(data)
+
+'''
+
+class PeepClientTransport(StackingTransport):
+
+    def __init__(self,transport):
+        #self.protocol=protocol
+        self.transport = transport
+        super().__init__(self.transport)
+
+    def write(self, data):
+        print("Calling PEEPClientTransport write")
+        self.transport.write(data)
 
 
 class PEEPClient(StackingProtocol):
@@ -199,7 +223,9 @@ class PEEPClient(StackingProtocol):
             packet.Checksum = self.calculateChecksum(packet)
             packs = packet.__serialize__()
             print("Serialized SYN",packs)
-            self.transport.write(packs)
+            #self.transport.write(packs)
+            peeptransport = PeepClientTransport(transport)
+            peeptransport.write(packs)
 
     def data_received(self, data):
 
@@ -233,16 +259,7 @@ class PEEPClient(StackingProtocol):
                 print("Incorrect packet received. Closing connection!")
                 self.transport.close()
 
-class PeepTransport(StackingTransport):
 
-    def __init__(self,transport):
-        #self.protocol=protocol
-        self.transport = transport
-        super().__init__(self.transport)
-
-    def write(self, data):
-        print("Calling PEEPTransport write")
-        self.transport.write(data)
 
 
 class initiate():
@@ -257,7 +274,7 @@ if __name__ == "__main__":
     logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
     logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
-    f = StackingProtocolFactory(lambda: Passthrough1(), lambda: PEEPClient())
+    f = StackingProtocolFactory(lambda: PEEPClient())
     ptConnector = playground.Connector(protocolStack=f)
 
     playground.setConnector("passthrough", ptConnector)
