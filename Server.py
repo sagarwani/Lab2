@@ -1,189 +1,164 @@
-from playground.network.packet import PacketType
-from playground.network.packet.fieldtypes import STRING,INT, BOOL, UINT32, ListFieldType, UINT8, UINT16, BUFFER
-from playground.network.packet.fieldtypes.attributes import Optional
 import asyncio
-from io import StringIO
 import playground
-from playground.network.common.Protocol import StackingProtocol, StackingTransport, StackingProtocolFactory
-import random
-import sys
-from playground.asyncio_lib.testing import TestLoopEx
-from playground.network.testing import MockTransportToStorageStream
-from playground.network.testing import MockTransportToProtocol
-from playground.common import logging as p_logging
+import random, zlib, logging
 
-#Call Start Message
-class startcall(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.start"
-    DEFINITION_VERSION = "1.0"
-    FIELDS = [ ('flag', BOOL)]
+from playground.network.packet import PacketType
+from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, BUFFER
+from playground.network.packet.fieldtypes.attributes import Optional
+from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
 
-#Call Response Packet Class Definition
-class response(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.response"
+class RequestToBuy(PacketType):
+    DEFINITION_IDENTIFIER = "RequestToBuy"
     DEFINITION_VERSION = "1.0"
-    FIELDS = [ ("name", STRING),
-               ("available", BOOL),
-               ("location", STRING),
-               ("ip", STRING),
-               ("port", UINT32),
-               ("xccpv", INT),
-               ("codec", ListFieldType(STRING)),
-               ]
-#BYE Message to disconnect the call
-class bye(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.bye"
-    DEFINITION_VERSION = "1.0"
-    FIELDS = [ ("flag", BOOL)
-               ]
 
-#Calling INVITE Packet Class Definition
-class invite(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.invite"
-    DEFINITION_VERSION = "1.0"
-    FIELDS = [ ("name", STRING),
-               ('available', BOOL),
-               ("location", STRING),
-               ("ip", STRING),
-               ("port", UINT32),
-               ("xccpv", INT),
-               ("codec", ListFieldType(STRING)),
-               ]
-#Session Start Packet Class Definition
-class session(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.session"
-    DEFINITION_VERSION = "1.0"
-    FIELDS = [ ("callingip", STRING),
-               ("callingport", UINT32),
-               ("calledip", STRING),
-               ("calledport", UINT32),
-               ("codec", STRING),
-               ("payload", INT)]
+    FIELDS = [
 
-# Busy packet calling class
-class busy(PacketType):
-    DEFINITION_IDENTIFIER = "lab1b.calling.busy"
-    DEFINITION_VERSION = "1.0"
-    FIELDS = [  ]
+             ]
 
-#TCP Packet
+class RequestItem(PacketType):
+    DEFINITION_IDENTIFIER = "RequestItem"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+
+             ]
+
+class SendItem(PacketType):
+    DEFINITION_IDENTIFIER = "SendItem"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+            ("Item", STRING),
+             ]
+
+
+class RequestMoney(PacketType):
+    DEFINITION_IDENTIFIER = "RequestMoney"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+        ("Amount", UINT32)
+             ]
+
+
+class SendMoney(PacketType):
+    DEFINITION_IDENTIFIER = "SendMoney"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+        ("Cash", UINT32)
+             ]
+
+class FinishTransaction(PacketType):
+    DEFINITION_IDENTIFIER = "FinishTransaction"
+    DEFINITION_VERSION = "1.0"
+
+    FIELDS = [
+
+             ]
+
 class PEEP(PacketType):
 
     DEFINITION_IDENTIFIER = "PEEP.Packet"
     DEFINITION_VERSION = "1.0"
 
     FIELDS = [
-        ("type", UINT8),
-        ("sequencenumber", UINT32({Optional: True})),
-        ("checksum", UINT16),
-        ("acknowledgement", UINT32({Optional: True})),
-        ("data", BUFFER({Optional: True}))
-    ]
+        ("Type", UINT8),
+        ("SequenceNumber", UINT32({Optional: True})),
+        ("Checksum", UINT16),
+        ("Acknowledgement", UINT32({Optional: True})),
+        ("Data", BUFFER({Optional: True}))
+         ]
 
-# Server Protocol Class
-class EchoServerProtocol(asyncio.Protocol):
-    name='test'; location='test'; xccpv='1'; ip='test'; port=23; codec=['testlist']; ip1='test'; ip2='test'; port1=0; port2=0;available=1
-    payload = {'G711u':64, 'G729':8, 'G711a':64, 'G722':84, 'OPUS': 124}
-    output1 = StringIO
-    output2 = StringIO
-    lst1 = []
-    state=0
-    cod=0
-    def invite(self, name, location, available, xccpv, ip, port, codec):
-        self.name = name
-        self.location = location
-        self.available = available
-        self.xccpv = xccpv
-        self.ip = ip
-        self.port = port
-        self.codec = codec
+class ShopServerProtocol(asyncio.Protocol):
 
-    def session(self, ip1, port1, ip2, port2, codec, payload):
-        self.ip1 = ip1
-        self.port1 = port1
-        self.ip2 = ip2
-        self.port2 = port2
-        self.codec = codec
-        self.payload = payload
+    serverstate = 0
 
-    def __init__(self, loop):
+    def __init__(self):
+        self.deserializer = PacketType.Deserializer()
         self.transport = None
-        self.invite('Bob', 'California', 1, 1, '10.0.0.1', 65001, ['G711u', 'G729', 'G722', 'OPUS', 'G711a'])
-        self.loop = loop
-        self._deserializer = PacketType.Deserializer()
 
     def connection_made(self, transport):
-        print("\nEchoServer is now Connected to a Client\n")
+        print("Server connection_made is called")
         self.transport = transport
 
-
     def data_received(self, data):
-        self._deserializer.update(data)
-        for packet in self._deserializer.nextPackets():
-            print("Packet received.", packet.DEFINITION_IDENTIFIER)
-            if(packet.DEFINITION_IDENTIFIER == "lab1b.calling.start") and (self.available==1) and self.state==0:
-                print('Packet 1 CLIENT -> SERVER: Call start request')
-                print('\t\t\t\t ', packet)
-                self.state +=1
-                inv = invite()
-                inv.name = self.name; inv.location = self.location; inv.xccpv = self.xccpv; inv.ip = self.ip; inv.port = self.port; inv.codec = self.codec; inv.available = self.available
-                self.output1 = inv.ip
-                self.output2 = inv.port
-                self.lst1 = inv.codec
-                pkbytes = inv.__serialize__()
-                self.transport.write(pkbytes)
-            elif(packet.DEFINITION_IDENTIFIER == "lab1b.calling.start") and (self.available==0) and self.state==0:
-                bus = busy()
-                pkbytes = bus.__serialize__()
-                self.transport.write(pkbytes)
-            elif(packet.DEFINITION_IDENTIFIER=='lab1b.calling.response') and self.state==1:
-                print('\nPacket 3 CLIENT -> SERVER: Call response from {}'.format(packet.name))
-                print('\t\t\t\t ', packet)
-                self.state +=1
-                ses = session()
-                ses.callingip=self.output1; ses.calledip=packet.ip; ses.callingport = self.output2; ses.calledport = packet.port
-                for codec in list(self.lst1):
-                    for codec1 in list(packet.codec):
-                        if codec==codec1:
-                            ses.codec=codec
-                            self.cod += 1
-                if self.cod==0:
-                    print('\nClient does not have supported codecs. Connection will now terminate.')
-                else:
-                    ses.payload = int(self.payload[ses.codec])
-                    pkbytes = ses.__serialize__()
-                    self.transport.write(pkbytes)
-            elif(packet.DEFINITION_IDENTIFIER=='lab1b.calling.bye') and self.state==2:
-                print('\nPacket 5 CLIENT -> SERVER: Call disconnect request from Alice.')
-                print('\t\t\t\t ', packet)
-                self.transport.close()
-                self.loop.stop()
-            else:
-                print('Incorrect packet received. Please check the protocol on server side.')
-                self.transport.close()
+        print("Server Data_received is called")
 
-'''class PassThrough1(StackingProtocol, StackingTransport):
+        self.deserializer.update(data)
+        print(data)
+        for pkt in self.deserializer.nextPackets():
+                print("Client ------------{}---------------> Server".format(pkt.DEFINITION_IDENTIFIER))
+
+
+                if isinstance(pkt, RequestToBuy) and self.serverstate == 0:
+                    self.serverstate += 1
+
+                    # PACKET 2 - Request Item packet
+                    response = RequestItem()
+
+                    print("Sent RequestItem")
+                    self.transport.write(response.__serialize__())
+                    #print(self.serverstate)
+
+                elif isinstance(pkt, SendItem) and self.serverstate == 1:
+                    self.serverstate += 1
+
+                    # PACKET 4 - Request Money packet
+                    response = RequestMoney()
+
+                    if pkt.Item == "Bread":
+                        response.Amount = 4
+                    elif pkt.Item == "Butter":
+                        response.Amount = 10
+
+                    print("Sent RequestMoney")
+                    self.transport.write(response.__serialize__())
+
+                elif isinstance(pkt, SendMoney) and self.serverstate == 2:
+                    self.serverstate += 1
+
+                    # PACKET 6 - Finish Transaction packet
+                    response = FinishTransaction()
+
+                    print("Sent FinishTransaction")
+                    self.transport.write(response.__serialize__())
+                    self.transport.close()
+
+                else:
+                  print("Server Received Incorrect Packet. Closing Connection. Try Again!")
+                  self.transport.close()
+
+'''
+
+class PassThrough1(StackingProtocol, StackingTransport):
 
     def __init__(self):
         self.transport = None
 
     def connection_made(self, transport):
-        print("\nConnection made. Once data is received by PassThrough1, will be sent to higher layer")
+        print("Passthrough1 server connection_made called")
+
         self.transport = transport
+
+        #self.higherProtocol().connection_made(self.transport)
         higherTransport = StackingTransport(self.transport)
         self.higherProtocol().connection_made(higherTransport)
 
     def data_received(self, data):
-        print("\nData Received at PassThrough1. Sending it to higher layer.\n")
+        print("Passthrough1 server Data_received called")
+
         self.higherProtocol().data_received(data)
 
     def connection_lost(self, exc):
+        print('Passthrough1 server connection_lost called')
         self.transport = None
-        print("\nPassThrough1 Connection was Lost with Server because: {}".format(exc))
-        self.transport.close()'''
+'''
 
+global window_size
+window_size = 0
 
-class PEEPServerProtocol(StackingProtocol, StackingTransport):
+class PEEPServerProtocol(StackingProtocol):
     serverstate = 0
     clientseq = 0
     serverseq = 0
@@ -192,100 +167,118 @@ class PEEPServerProtocol(StackingProtocol, StackingTransport):
         self.deserializer = PacketType.Deserializer()
         self.transport = None
 
-    def tcp_checksum(self, instance):
-        # instead of concat 16-bit words, we use data that is a multiple of 16
-        # (i.e. 576, the whole segment)
-        all_text = str(instance.type) + str(instance.sequencenumber) + str(instance.acknowledgement) + str(instance.data)
-        sum = 0
-        for i in range((0), len(all_text) - 1, 2):
-            # get unicode/byte values of operands
-            first_operand = ord(all_text[i])
-            second_operand = ord(all_text[i + 1]) << 8
-            # add
-            current_sum = first_operand + second_operand
-            # add and wrap around
-            sum = ((sum + current_sum) & 0xffff) + ((sum + current_sum) >> 16)
-        return sum
+    def calculateChecksum(self, instance):
+        self.instance = instance
+        self.instance.Checksum = 0
+        bytes = self.instance.__serialize__()
+        return zlib.adler32(bytes) & 0xffff
+
+    def checkChecksum(self, instance):
+        self.instance = instance
+        pullChecksum = self.instance.Checksum
+        self.instance.Checksum = 0
+        bytes = self.instance.__serialize__()
+        if pullChecksum == zlib.adler32(bytes) & 0xffff:
+            return True
+        else:
+            return False
 
     def connection_made(self, transport):
+        print("PEEP SERVER Connection_made CALLED")
         self.transport = transport
-        #higherTransport = StackingTransport(self.transport)
-        #self.higherProtocol().connection_made(higherTransport)
+        #print (window_size)
+        # higherTransport = StackingTransport(self.transport)
+        # self.higherProtocol().connection_made(higherTransport)
 
     def data_received(self, data):
+        print("PEEP SERVER Data_Received CALLED")
         self.deserializer.update(data)
+        #print (window_size)
         for pkt in self.deserializer.nextPackets():
-            # CheckSUM Check
+            # Checksum Check
             # SYN from client
-            if pkt.type == 0 and self.serverstate == 0:
+            print ("In loop")
+            #print (window_size)
+            checkvalue = self.checkChecksum(pkt)
+            if pkt.Type == 0 and self.serverstate == 0:
+                #window_size += 1
                 self.serverstate += 1
-                self.clientseq = pkt.sequencenumber
-                if(pkt.checksum == self.tcp_checksum(pkt)):
-                    print("\nSYN Received. Seq=",pkt.sequencenumber)
+                self.clientseq = pkt.SequenceNumber
+                if checkvalue == True:
+                    print("\nSYN Received. Seq=", pkt.SequenceNumber)
+                    #Sending SYN
                     synack = PEEP()
-                    synack.type = 1
-                    synack.acknowledgement = pkt.sequencenumber + 1
-                    synack.sequencenumber = random.randint(5000, 9999)
-                    self.serverseq = synack.sequencenumber
-                    synack.checksum = self.tcp_checksum(synack)
-                    self.transport.write(synack.__serialize__())
+                    synack.Type = 1
+                    synack.Acknowledgement = pkt.SequenceNumber + 1
+                    synack.SequenceNumber = random.randint(5000, 9999)
+                    self.serverseq = synack.SequenceNumber
+                    synack.Checksum = self.calculateChecksum(synack)
+
+                    packs = synack.__serialize__()
+                    peeptransport = PeepServerTransport(self.transport)
+                    peeptransport.write(packs)
+
+                    #self.transport.write(synack.__serialize__())
                 else:
-                    print("Checksum error. Packet data corrupt.")
+                    print("Checksum error. Packet Data corrupt.")
                     self.transport.close()
-            elif pkt.type == 2 and self.serverstate == 1 and pkt.sequencenumber == self.clientseq + 1 and pkt.acknowledgement == self.serverseq + 1:
+            elif pkt.Type == 2 and self.serverstate == 1 and pkt.SequenceNumber == self.clientseq + 1 and pkt.Acknowledgement == self.serverseq + 1:
                 # Data transmission can start
-                print("\nACK Received. Seqno=",pkt.sequencenumber," Ackno=",pkt.acknowledgement)
+                print("\nACK Received. Seqno=", pkt.SequenceNumber, " Ackno=", pkt.Acknowledgement)
+
                 self.serverstate += 1
-                if(pkt.checksum == self.tcp_checksum(pkt)):
-                    print("\nTCP Connection successful. Client OK to send the data now.\n")
+                if checkvalue == True:
+                    print("\nTCP Connection successful. Client OK to send the Data now.\n")
+                    # calling higher connection made since the I have received the ACK
+
                     higherTransport = StackingTransport(self.transport)
                     self.higherProtocol().connection_made(higherTransport)
-                    self.higherProtocol().data_received(data)
 
+                    self.higherProtocol().data_received(data)
                 else:
                     print("Corrupt ACK packet. Please check on client end.")
+                    self.transport.close()
+
             # Reset packet received
             elif pkt.Type == 5:
-                print("Server received connection close from client. Closing socket.")
+                 print("Server received connection close from client. Closing socket.")
 
 
-class PassThrough2(StackingProtocol, StackingTransport):
-    def __init__(self):
-        self.transport = None
+class PeepServerTransport(StackingTransport):
 
-    def connection_made(self, transport):
-        print("\nConnection made. Once data is received by PassThrough2, will be sent to higher layer")
+    def __init__(self,transport):
+        #self.protocol=protocol
         self.transport = transport
-        higherTransport = StackingTransport(self.transport)
-        self.higherProtocol().connection_made(higherTransport)
+        super().__init__(self.transport)
 
-    def data_received(self, data):
-        print("\nData Received at PassThrough2. Sending it to higher layer.\n")
-        self.higherProtocol().data_received(data)
-
-    def connection_lost(self, exc):
-        self.transport = None
-        print("\nPassThrough2 Connection was Lost with Server because: {}".format(exc))
-        self.transport.close()
-
+    def write(self, data):
+        print("Calling PEEPServerTransport write")
+        self.transport.write(data)
 
 if __name__ == "__main__":
 
-    #p_logging.EnablePresetLogging(p_logging.PRESET_TEST)
     loop = asyncio.get_event_loop()
-    #bob = EchoServerProtocol(loop)
-    #bob.invite('Bob', 'California', 1, 1, '10.0.0.1', 65001, ['G711u', 'G729', 'G722', 'OPUS', 'G711a'])
-    f = StackingProtocolFactory(lambda: PEEPServerProtocol(), lambda: PassThrough2())
-    ptConnector = playground.Connector(protocolStack=f)
-    playground.setConnector("passthrough", ptConnector)
-    #loop.set_debug(enabled=True)
-    conn = playground.getConnector('passthrough').create_playground_server(lambda: EchoServerProtocol(loop) , 8888)
-    #conn = loop.create_server(lambda: EchoServerProtocol(), port=8000)
-    server = loop.run_until_complete(conn)
-    print("Echo Server Started at {}".format(server.sockets[0].gethostname()))
-    print('\nPress Ctrl+C to terminate the process')
+    # Each client connection will create a new protocol instance
+
+    logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
+    logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
+
+    f= StackingProtocolFactory(lambda: PEEPServerProtocol())
+    ptConnector= playground.Connector(protocolStack=f)
+
+    playground.setConnector("passthrough",ptConnector)
+
+    #coro = loop.create_server(ShopServerProtocol, '127.0.0.1', 8888)
+    coro = playground.getConnector('passthrough').create_playground_server(lambda: ShopServerProtocol(),8888)
+    server = loop.run_until_complete(coro)
+
+    # Serve requests until Ctrl+C is pressed
     try:
         loop.run_forever()
     except KeyboardInterrupt:
         pass
+
+    # Close the server
+    server.close()
+    loop.run_until_complete(server.wait_closed())
     loop.close()
