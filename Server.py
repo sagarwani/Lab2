@@ -79,11 +79,11 @@ class ShopServerProtocol(asyncio.Protocol):
         self.transport = None
 
     def connection_made(self, transport):
-        print("Server connection_made is called")
+        print("ShopServer connection_made is called")
         self.transport = transport
 
     def data_received(self, data):
-        print("Server Data_received is called")
+        print("ShopServer Data_received is called")
 
         self.deserializer.update(data)
         print(data)
@@ -197,7 +197,6 @@ class PEEPServerProtocol(StackingProtocol):
         for pkt in self.deserializer.nextPackets():
             # Checksum Check
             # SYN from client
-            print ("In loop")
             #print (window_size)
             checkvalue = self.checkChecksum(pkt)
             if pkt.Type == 0 and self.serverstate == 0:
@@ -215,10 +214,10 @@ class PEEPServerProtocol(StackingProtocol):
                     synack.Checksum = self.calculateChecksum(synack)
 
                     packs = synack.__serialize__()
-                    peeptransport = PeepServerTransport(self.transport)
-                    peeptransport.write(packs)
+                    #peeptransport = PeepServerTransport(self.transport)
+                    #peeptransport.write(packs)
 
-                    #self.transport.write(synack.__serialize__())
+                    self.transport.write(synack.__serialize__())
                 else:
                     print("Checksum error. Packet Data corrupt.")
                     self.transport.close()
@@ -226,13 +225,15 @@ class PEEPServerProtocol(StackingProtocol):
                 # Data transmission can start
                 print("\nACK Received. Seqno=", pkt.SequenceNumber, " Ackno=", pkt.Acknowledgement)
 
+
                 self.serverstate += 1
                 if checkvalue == True:
                     print("\nTCP Connection successful. Client OK to send the Data now.\n")
                     # calling higher connection made since the I have received the ACK
 
-                    higherTransport = StackingTransport(self.transport)
-                    self.higherProtocol().connection_made(higherTransport)
+                    #higherTransport = StackingTransport(self.transport)
+                    pstransport = PeepServerTransport(self.transport)
+                    self.higherProtocol().connection_made(pstransport)
 
                     self.higherProtocol().data_received(data)
                 else:
@@ -242,6 +243,9 @@ class PEEPServerProtocol(StackingProtocol):
             # Reset packet received
             elif pkt.Type == 5:
                  print("Server received connection close from client. Closing socket.")
+
+            elif pkt.Acknowledgement == 5555:
+                print("FUCKING I GOT THE PACKET FROM THE OTHER SIDE")
 
 
 class PeepServerTransport(StackingTransport):
