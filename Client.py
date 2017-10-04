@@ -2,12 +2,13 @@ import asyncio
 import playground
 import random
 import logging
-
+from playground import getConnector
 from playground.network.packet import PacketType
 from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, BUFFER
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
 import zlib
+
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -72,7 +73,7 @@ class PEEP(PacketType):
         ("Data", BUFFER({Optional: True}))
 ]
 
-class ShopClientProtocol(asyncio.Protocol, StackingTransport):
+class ShopClientProtocol(asyncio.Protocol):
 
     clientstate = 0
 
@@ -83,20 +84,19 @@ class ShopClientProtocol(asyncio.Protocol, StackingTransport):
 
     def connection_made(self, transport):
         print("Client connection_made is called\n")
-
         self.transport = transport
-
+        print(self.transport)
         # PACKET 1 - Request to Buy packet
         startbuy = RequestToBuy()
         print("Sending Request to Buy")
-        self.transport.write(startbuy.__serialize__())
+        self.transport.write(startbuy)
 
     def data_received(self, data):
         print("Client Data_received is called")
         self.deserializer.update(data)
-        print(data)
+        #print(data)
         for pkt in self.deserializer.nextPackets():
-            print("Client <------------{}------------- Server".format(pkt.DEFINITION_IDENTIFIER))
+            #print("Client <------------{}------------- Server".format(pkt.DEFINITION_IDENTIFIER))
 
             if isinstance(pkt, RequestItem) and self.clientstate == 0:
                 self.clientstate += 1
@@ -126,13 +126,15 @@ class ShopClientProtocol(asyncio.Protocol, StackingTransport):
                 self.transport.close()
 
             else:
+                print(pkt.Type)
                 print("Client Received Incorrect Packet. Closing Connection. Try Again!")
                 self.transport.close()
 
 
     def connection_lost(self, exc):
         print('\nThe server closed the connection')
-        print('Stop the event loop')
+        #print('Stop the event loop')
+        self.transport.close()
         self.transport = None
 
 '''
@@ -170,17 +172,44 @@ class Passthrough1Transport(StackingTransport):
         print("Calling Passthrough1 Transport write")
         self.transport.write(data)
 
+
 '''
+class PeepClientTransport(StackingTransport):
+
+    def __init__(self,protocol,transport):
+        self.protocol = protocol
+        self.transport = transport
+        super().__init__(self.transport)
+
+
+    def write(self, data):
+        #print(data)
+        print ("calling write")
+        #print(self.lowerTransport)
+        print("RAW PACKET-DATA")
+        print(data)
+        bytes = data.__serialize__()
+        print (bytes)
+        print("LOWER TRANSPORT")
+        print(self.lowerTransport())
+        self.lowerTransport().write(bytes)
+            #print ("I wrote the packet")
+
+    def close(self):
+        self.lowerTransport().connection_lost()
+
 
 class PEEPClient(StackingProtocol):
+
     def __init__(self):
+        print("INIT Passthrough")
         self.transport = None
         self.state = 0
 
     def calculateChecksum(self, c):
         self.c = c
         self.c.Checksum = 0
-        #print(self.c)
+        print(self.c)
         bitch = self.c.__serialize__()
         return zlib.adler32(bitch) & 0xffff
 
@@ -195,10 +224,11 @@ class PEEPClient(StackingProtocol):
             return False
 
 
-
     def connection_made(self, transport):
         print("PEEP Client Connection_made CALLED")
         self.transport = transport
+        self.protocol = self
+        print("hahahah"+str(self.protocol.transport))
         if self.state == 0:
             packet = PEEP()
             packet.Type = 0
@@ -207,13 +237,14 @@ class PEEPClient(StackingProtocol):
             # packet.Data = b'test'
             self.state += 1
             dude = self.calculateChecksum(packet)
-            print(dude)
+            #print(dude)
+            print("SYN PACKET")
+            print(packet)
             packet.Checksum = self.calculateChecksum(packet)
             packs = packet.__serialize__()
             print("Serialized SYN",packs)
             self.transport.write(packs)
-            #peeptransport = PeepClientTransport(self.transport)
-            #peeptransport.write(packs)
+
 
     def data_received(self, data):
 
@@ -233,49 +264,36 @@ class PEEPClient(StackingProtocol):
                 ack.Acknowledgement = packet.SequenceNumber + 1
                 self.state += 1
                 ack.Checksum = self.calculateChecksum(ack)
+                print("ACK")
+                print(ack)
                 clientpacketbytes = ack.__serialize__()
-
-                #calling higher connection made since the I am sending the ACK
-
-                #higherTransport = StackingTransport(self.transport)
-                pctransport = PeepClientTransport(self.transport)
-                self.higherProtocol().connection_made(pctransport)
-
+                print ("sending ack")
                 self.transport.write(clientpacketbytes)
 
-                self.higherProtocol().data_received(data)
+                peeptransport = PeepClientTransport(self.protocol,self.transport)
+                #print("PEEP TRANSPORT")
+                #print(peeptransport)
+                #print("PEEP-CLIENT TRANSPORT")
+                #print(self.transport)
+
+                #higherTransport = StackingTransport(self.transport)
+                self.higherProtocol().connection_made(peeptransport)
+                #self.higherProtocol().connection_made(higherTransport)
+
             else:
-                print("Incorrect packet received. Closing connection!")
-                self.transport.close()
+                print ("Calling definition identifier")
+                self.transport.write(data)
+            #else:
+            #    print("Incorrect packet received. Closing connection!")
+            #    self.transport.close()
+
+    def connection_lost(self, exc):
+        print ("closing connection")
 
 
-class PeepClientTransport(StackingTransport):
-
-    def __init__(self, transport):
-        #self.protocol=protocol
-        self.transport = transport
-
-        super().__init__(self.transport)
-
-
-    def write(self, data):
-
-        print("Calling PEEPClientTransport write")
-
-        print(data)
-
-        #Sending Data
-        packet = PEEP()
-        PeepClient = PEEPClient()
-        packet.Type = 5
-        packet.SequenceNumber = random.randrange(1, 1000, 1)
-        packet.Acknowledgement = 5555
-        packet.Data = data
-        packet.Checksum = PeepClient.calculateChecksum(packet)
-
-        bytes = packet.__serialize__()
-        self.lowerTransport().write(bytes)
-
+    def write(self,data):
+        print("lalalalalalal")
+        print (data)
 
 
 class initiate():
