@@ -158,14 +158,15 @@ class PassThrough1(StackingProtocol, StackingTransport):
 
 class PeepServerTransport(StackingTransport):
 
-    def __init__(self,transport):
-        #self.protocol=protocol
+    def __init__(self,protocol, transport):
+        self.protocol=protocol
         self.transport = transport
         super().__init__(self.transport)
 
     def write(self, data):
         print("Calling PEEPServerTransport write")
-        self.lowerTransport().write(data)
+        #self.lowerTransport().write(data)
+        self.protocol.write(data)
 
 global window_size
 window_size = 0
@@ -246,7 +247,7 @@ class PEEPServerProtocol(StackingProtocol):
 
                     # calling higher connection made since the I have received the ACK
 
-                    peeptransport = PeepServerTransport(self.transport)
+                    peeptransport = PeepServerTransport(self, self.transport)
                     higherTransport = StackingTransport(peeptransport)
                     self.higherProtocol().connection_made(higherTransport)
 
