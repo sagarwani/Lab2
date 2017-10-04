@@ -192,7 +192,7 @@ class PeepClientTransport(StackingTransport):
         print (bytes)
         print("LOWER TRANSPORT")
         print(self.lowerTransport())
-        self.lowerTransport().write(bytes)
+        self.protocol.write(bytes)
             #print ("I wrote the packet")
 
     def close(self):
@@ -270,15 +270,15 @@ class PEEPClient(StackingProtocol):
                 print ("sending ack")
                 self.transport.write(clientpacketbytes)
 
-                peeptransport = PeepClientTransport(self.protocol,self.transport)
+                peeptransport = PeepClientTransport(self, self.transport)
                 #print("PEEP TRANSPORT")
                 #print(peeptransport)
-                #print("PEEP-CLIENT TRANSPORT")
+                #print("PEEP-CLIENT TRANSPORT"
                 #print(self.transport)
 
-                #higherTransport = StackingTransport(self.transport)
+                #higherTransport = StackingTransport(self, self.transport)
+                #self.higherProtocol().connection_made(peeptransport)
                 self.higherProtocol().connection_made(peeptransport)
-                #self.higherProtocol().connection_made(higherTransport)
 
             else:
                 print ("Calling definition identifier")
@@ -293,7 +293,7 @@ class PEEPClient(StackingProtocol):
 
     def write(self,data):
         print("lalalalalalal")
-        print (data)
+        self.transport.write(data)
 
 
 class initiate():
