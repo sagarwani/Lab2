@@ -222,6 +222,7 @@ class PEEPServerProtocol(StackingProtocol):
         for pkt in self.deserializer.nextPackets():
             # Checksum Check
             # SYN from client
+            #1
             checkvalue = self.checkChecksum(pkt)
             if pkt.Type == 0 and self.serverstate == 0:
                 #window_size += 1
