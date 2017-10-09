@@ -77,7 +77,6 @@ class ShopClientProtocol(asyncio.Protocol):
     clientstate = 0
 
     def __init__(self, loop):
-        #self.loop = loop
         self.transport = None
         self.loop = loop
         self.deserializer = PacketType.Deserializer()
@@ -130,7 +129,7 @@ class ShopClientProtocol(asyncio.Protocol):
                 self.transport.close()
 
 
-    def connection_lost(self,exc):
+    def connection_lost(self, exc):
         print('\nThe ShopServer sent a connection close to the client')
         self.transport.close()
         self.transport = None
@@ -142,6 +141,7 @@ class PeepClientTransport(StackingTransport):
     def __init__(self,protocol,transport):
         self.protocol = protocol
         self.transport = transport
+
         self.exc = None
         super().__init__(self.transport)
 
@@ -151,14 +151,16 @@ class PeepClientTransport(StackingTransport):
         self.protocol.write(data)
 
     def close(self):
+        #self.loop = loop
         self.protocol.connection_lost(self.exc)
 
 
 class PEEPClient(StackingProtocol):
 
-    def __init__(self):
+    def __init__(self, loop):
         self.transport = None
         self.state = 0
+        self.loop = loop
 
     def calculateChecksum(self, c):
         self.c = c
@@ -221,10 +223,9 @@ class PEEPClient(StackingProtocol):
                 peeptransport = PeepClientTransport(self, self.transport)
                 self.higherProtocol().connection_made(peeptransport)
 
-            elif packet.Type == 5:
+            elif packet.Type == 5 and self.state == 2 and checkvalue == True:
 
                  print("====================Got Encapasulated Packet and Deserialized==================")
-
                  print(packet.Data)
                  self.higherProtocol().data_received(packet.Data)
 
@@ -238,7 +239,7 @@ class PEEPClient(StackingProtocol):
 
 
         Cencap = PEEP()
-        calcChecksum = PEEPClient()
+        calcChecksum = PEEPClient(loop)
         Cencap.Type = 5
         Cencap.Acknowledgement = 5555
         Cencap.SequenceNumber = 3333
@@ -253,9 +254,11 @@ class PEEPClient(StackingProtocol):
 
         #self.transport.write(data)
 
-    def connection_lost(self,exc):
+    def connection_lost(self, exc):
+        #self.loop = loop
         print ("============== PEEPClient Closing connection ===========\n")
         self.transport.close()
+        self.loop.stop()
 
 
 
@@ -264,8 +267,7 @@ class initiate():
         self.loop = loop
 
     def send_first_packet(self):
-        self.loop = loop
-        return ShopClientProtocol(loop)
+        return ShopClientProtocol(self.loop)
 
 if __name__ == "__main__":
 
@@ -274,7 +276,7 @@ if __name__ == "__main__":
     logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
     logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
-    Clientfactory = StackingProtocolFactory(lambda: PEEPClient())
+    Clientfactory = StackingProtocolFactory(lambda: PEEPClient(loop))
     ptConnector = playground.Connector(protocolStack=Clientfactory)
 
     playground.setConnector("passthrough", ptConnector)
