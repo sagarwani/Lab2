@@ -236,6 +236,7 @@ class PEEPServerProtocol(StackingProtocol):
                     synack.Acknowledgement = pkt.SequenceNumber + 1
                     synack.SequenceNumber = random.randint(5000, 9999)
                     self.serverseq = synack.SequenceNumber
+                    self.global_number_seq = self.serverseq + 1
                     synack.Checksum = self.calculateChecksum(synack)
                     print("\n=========================== Sending SYN-ACK ========================\n")
                     print(synack)
@@ -272,6 +273,7 @@ class PEEPServerProtocol(StackingProtocol):
                      print("====================Got Encapasulated Packet and Deserialized==================")
 
                      print(pkt.Data)
+                     self.global_number_ack = self.update_ack(pkt.SequenceNumber)
                      self.higherProtocol().data_received(pkt.Data)
 
                  else:
@@ -305,6 +307,23 @@ class PEEPServerProtocol(StackingProtocol):
                 else:
                     print("Corrupt RIP-ACK packet received. Please check on server end.")
 
+    global_number_seq = 0
+    global_number_ack = 0
+    count_of_function_call = 0
+
+    def update_sequence(self):
+        if self.count_of_function_call == 0:
+            self.count_of_function_call = 1
+            return self.global_number_seq
+        else:
+            #assuming length is 10 for now
+            self.global_number_seq = self.prev_sequence_number + 10
+            return self.global_number_seq
+
+    def update_ack(self, received_seq_number):
+        self.received_seq_number = received_seq_number
+        self.global_number_ack = self.received_seq_number + 10
+        return self.global_number_ack
 
     def write(self,data):
         print ("=================== Writing Data down to wire from Server ================\n")
@@ -312,8 +331,14 @@ class PEEPServerProtocol(StackingProtocol):
         Sencap = PEEPpacket()
         calcChecksum = PEEPServerProtocol(self.loop)
         Sencap.Type = 5
-        Sencap.Acknowledgement = 5555
-        Sencap.SequenceNumber = 3333
+        Sencap.SequenceNumber = self.update_sequence()
+
+        self.prev_sequence_number = Sencap.SequenceNumber
+        print ("seq number" + str(Sencap.SequenceNumber))
+
+        Sencap.Acknowledgement = self.global_number_ack
+        print ("Sen Ack" + str(Sencap.Acknowledgement))
+
         Sencap.Data = data
         #Sencap.Checksum = 0
         Sencap.Checksum = calcChecksum.calculateChecksum(Sencap)
