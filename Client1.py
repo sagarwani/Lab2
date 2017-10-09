@@ -76,13 +76,14 @@ class ShopClientProtocol(asyncio.Protocol):
 
     clientstate = 0
 
-    def __init__(self):
+    def __init__(self, loop):
         #self.loop = loop
         self.transport = None
+        self.loop = loop
         self.deserializer = PacketType.Deserializer()
 
     def connection_made(self, transport):
-        print("Client connection_made is called\n")
+        print("ShopClient connection_made is called\n")
         self.transport = transport
         # PACKET 1 - Request to Buy packet
         startbuy = RequestToBuy()
@@ -90,7 +91,7 @@ class ShopClientProtocol(asyncio.Protocol):
         self.transport.write(startbuy.__serialize__())
 
     def data_received(self, data):
-        print("Client Data_received is called")
+        print("ShopClient Data_received is called")
         self.deserializer.update(data)
         #print(data)
         for pkt in self.deserializer.nextPackets():
@@ -129,10 +130,11 @@ class ShopClientProtocol(asyncio.Protocol):
                 self.transport.close()
 
 
-    def connection_lost(self, exc):
-        print('\nThe server closed the connection')
+    def connection_lost(self,exc):
+        print('\nThe ShopServer sent a connection close to the client')
         self.transport.close()
         self.transport = None
+        self.loop.stop()
 
 
 class PeepClientTransport(StackingTransport):
@@ -140,18 +142,16 @@ class PeepClientTransport(StackingTransport):
     def __init__(self,protocol,transport):
         self.protocol = protocol
         self.transport = transport
-        #super().__init__(self.transport)
+        self.exc = None
+        super().__init__(self.transport)
 
 
     def write(self, data):
-        #bytes = data.__serialize__()
-        #print(self.lowerTransport())
-
         print(data)
-        self.protocol.write(bytes)
+        self.protocol.write(data)
 
     def close(self):
-        self.lowerTransport().connection_lost()
+        self.protocol.connection_lost(self.exc)
 
 
 class PEEPClient(StackingProtocol):
@@ -232,36 +232,40 @@ class PEEPClient(StackingProtocol):
                 print("======== Incorrect packet received. Closing connection!=========\n")
                 self.transport.close()
 
-    def connection_lost(self, exc):
-        print ("============== Closing connection ===========\n")
-        self.transport.close()
-
 
     def write(self,data):
         print ("=================== Writing Data down to wire from Client ================\n")
 
-        '''
+
         Cencap = PEEP()
         calcChecksum = PEEPClient()
         Cencap.Type = 5
         Cencap.Acknowledgement = 5555
         Cencap.SequenceNumber = 3333
         Cencap.Data = data
-
-        Cencap.Checksum = 0 #calcChecksum.calculateChecksum(Cencap)
+        #Cencap.Checksum = 0
+        Cencap.Checksum = calcChecksum.calculateChecksum(Cencap)
 
         print(Cencap)
         bytes = Cencap.__serialize__()
 
         self.transport.write(bytes)
-        '''
-        self.transport.write(data)
+
+        #self.transport.write(data)
+
+    def connection_lost(self,exc):
+        print ("============== PEEPClient Closing connection ===========\n")
+        self.transport.close()
+
 
 
 class initiate():
+    def __init__(self, loop):
+        self.loop = loop
+
     def send_first_packet(self):
         self.loop = loop
-        return ShopClientProtocol()
+        return ShopClientProtocol(loop)
 
 if __name__ == "__main__":
 
@@ -275,7 +279,7 @@ if __name__ == "__main__":
 
     playground.setConnector("passthrough", ptConnector)
 
-    go = initiate()
+    go = initiate(loop)
     coro = playground.getConnector('passthrough').create_playground_connection(go.send_first_packet, '20174.1.1.1', 8888)
     loop.run_until_complete(coro)
 
