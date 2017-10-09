@@ -74,16 +74,17 @@ class ShopServerProtocol(asyncio.Protocol):
 
     serverstate = 0
 
-    def __init__(self):
+    def __init__(self, loop):
         self.deserializer = PacketType.Deserializer()
         self.transport = None
+        self.loop = loop
 
     def connection_made(self, transport):
-        print("Server connection_made is called")
+        print("ShopServer connection_made is called")
         self.transport = transport
 
     def data_received(self, data):
-        print("Server Data_received is called")
+        print("ShopServer Data_received is called")
 
         self.deserializer.update(data)
         #print(data)
@@ -130,8 +131,13 @@ class ShopServerProtocol(asyncio.Protocol):
                     print("Server Received Incorrect Packet. Closing Connection. Try Again!")
                     self.transport.close()
 
-'''
+    def connection_lost(self,exc):
+        print('\nThe ShopClient sent a connection close to the server')
+        self.transport.close()
+        self.loop.stop()
 
+
+'''
 class PassThrough1(StackingProtocol, StackingTransport):
 
     def __init__(self):
@@ -160,12 +166,16 @@ class PeepServerTransport(StackingTransport):
 
     def __init__(self,protocol, transport):
         self.protocol=protocol
+        self.exc = None
         self.transport = transport
         super().__init__(self.transport)
 
     def write(self, data):
         #bytes = data.__serialize__()
-        self.protocol.write(bytes)
+        self.protocol.write(data)
+
+        def close(self):
+            self.protocol.connection_lost(self.exc)
 
 global window_size
 window_size = 0
@@ -269,13 +279,18 @@ class PEEPServerProtocol(StackingProtocol):
         Sencap.Acknowledgement = 5555
         Sencap.SequenceNumber = 3333
         Sencap.Data = data
-
+        #Sencap.Checksum = 0
         Sencap.Checksum = calcChecksum.calculateChecksum(Sencap)
 
         print(Sencap)
         bytes = Sencap.__serialize__()
 
         self.transport.write(bytes)
+
+    def connection_lost(self,exc):
+        print("============== PEEPServer Closing connection ===========\n")
+        self.transport.close()
+        self.transport = None
 
 
 
@@ -292,7 +307,7 @@ if __name__ == "__main__":
 
     playground.setConnector("passthrough",ptConnector)
 
-    coro = playground.getConnector('passthrough').create_playground_server(lambda: ShopServerProtocol(),8888)
+    coro = playground.getConnector('passthrough').create_playground_server(lambda: ShopServerProtocol(loop),8888)
     server = loop.run_until_complete(coro)
 
     # Serve requests until Ctrl+C is pressed
