@@ -159,6 +159,12 @@ class PeepClientTransport(StackingTransport):
 
 class PEEPClient(StackingProtocol):
 
+    global_number_seq = 0
+    global_number_ack = 0
+    count_of_function_call = 0
+    first_data_seq_number = 0
+    count_of_function_call_ack = 0
+
     def __init__(self, loop):
         self.transport = None
         self.state = 0
@@ -216,7 +222,9 @@ class PEEPClient(StackingProtocol):
                     ack = PEEPpacket()
                     ack.Type = 2
                     ack.SequenceNumber = packet.Acknowledgement
+                    self.global_number_seq = ack.SequenceNumber
                     ack.Acknowledgement = packet.SequenceNumber + 1
+                    self.global_number_ack = ack.Acknowledgement
                     self.state += 1
                     ack.Checksum = self.calculateChecksum(ack)
                     clientpacketbytes = ack.__serialize__()
@@ -235,6 +243,7 @@ class PEEPClient(StackingProtocol):
                  print("====================Got Encapasulated Packet and Deserialized==================")
 
                  print(packet.Data)
+                 self.global_number_ack = self.update_ack(packet.SequenceNumber)
                  self.higherProtocol().data_received(packet.Data)
 
                 else:
@@ -276,8 +285,14 @@ class PEEPClient(StackingProtocol):
         Cencap = PEEPpacket()
         calcChecksum = PEEPClient(self.loop)
         Cencap.Type = 5
-        Cencap.Acknowledgement = 5555
-        Cencap.SequenceNumber = 3333
+        Cencap.SequenceNumber = self.update_sequence()
+        self.prev_sequence_number = Cencap.SequenceNumber
+        print ("seq number" + str(Cencap.SequenceNumber))
+
+        Cencap.Acknowledgement = self.global_number_ack
+        self.prev_ack_number = Cencap.SequenceNumber
+        print ("ack number" + str(Cencap.Acknowledgement))
+
         Cencap.Data = data
         #Cencap.Checksum = 0
         Cencap.Checksum = calcChecksum.calculateChecksum(Cencap)
@@ -288,6 +303,19 @@ class PEEPClient(StackingProtocol):
         self.transport.write(bytes)
 
         #self.transport.write(data)
+
+    def update_sequence(self):
+        if self.count_of_function_call == 0:
+            self.count_of_function_call = 1
+            return self.global_number_seq
+        else:
+            self.global_number_seq = self.prev_sequence_number + 10
+            return self.global_number_seq
+
+    def update_ack(self, received_seq_number):
+        self.received_seq_number = received_seq_number
+        self.global_number_ack = self.received_seq_number + 10
+        return self.global_number_ack
 
     def close(self):
         #RIPpacket
