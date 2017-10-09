@@ -133,8 +133,8 @@ class ShopServerProtocol(asyncio.Protocol):
 
     def connection_lost(self,exc):
         print('\nThe ShopClient sent a connection close to the server')
-        self.transport.close()
-        self.loop.stop()
+        self.transport.end(self.loop)
+
 
 
 '''
@@ -174,20 +174,19 @@ class PeepServerTransport(StackingTransport):
         #bytes = data.__serialize__()
         self.protocol.write(data)
 
-        def close(self):
-            self.protocol.connection_lost(self.exc)
-
-global window_size
-window_size = 0
+    def close(self):
+        self.loop = loop
+        self.protocol.connection_lost(self.exc)
 
 class PEEPServerProtocol(StackingProtocol):
     serverstate = 0
     clientseq = 0
     serverseq = 0
 
-    def __init__(self):
+    def __init__(self, loop):
         self.deserializer = PacketType.Deserializer()
         self.transport = None
+        self.loop = loop
 
     def calculateChecksum(self, instance):
         self.instance = instance
@@ -215,11 +214,11 @@ class PEEPServerProtocol(StackingProtocol):
         self.deserializer.update(data)
         print (data)
         for pkt in self.deserializer.nextPackets():
+
             # Checksum Check
-            # SYN from client
             checkvalue = self.checkChecksum(pkt)
             if pkt.Type == 0 and self.serverstate == 0:
-                #window_size += 1
+
                 self.serverstate += 1
                 self.clientseq = pkt.SequenceNumber
                 if checkvalue == True:
@@ -257,16 +256,21 @@ class PEEPServerProtocol(StackingProtocol):
                     self.higherProtocol().connection_made(higherTransport)
 
                 else:
-                    print("================= Corrupt ACK packet. Please check on client end.===============\n")
+                    print("================= Corrupted ACK packet. Please check on client end.===============\n")
                     self.transport.close()
 
-            # Reset packet received
-            elif pkt.Type == 5:
+            # Data Packets
+            elif pkt.Type == 5 and self.serverstate == 2:
 
                  print("====================Got Encapasulated Packet and Deserialized==================")
 
-                 print(pkt.Data)
-                 self.higherProtocol().data_received(pkt.Data)
+                 if checkvalue == True:
+                     print(pkt.Data)
+                     self.higherProtocol().data_received(pkt.Data)
+
+                 else:
+                     print("================= Corrupted Data packet. Please check on client end.===============\n")
+                     self.transport.close()
 
                  #print("================ Server received connection close from client. Closing socket.===============\n")
 
@@ -274,7 +278,7 @@ class PEEPServerProtocol(StackingProtocol):
         print ("=================== Writing Data down to wire from Server ================\n")
 
         Sencap = PEEP()
-        calcChecksum = PEEPServerProtocol()
+        calcChecksum = PEEPServerProtocol(loop)
         Sencap.Type = 5
         Sencap.Acknowledgement = 5555
         Sencap.SequenceNumber = 3333
@@ -287,10 +291,12 @@ class PEEPServerProtocol(StackingProtocol):
 
         self.transport.write(bytes)
 
-    def connection_lost(self,exc):
+    def connection_lost(self, exc):
+        #self.loop = loop
         print("============== PEEPServer Closing connection ===========\n")
         self.transport.close()
         self.transport = None
+        self.loop.stop()
 
 
 
@@ -302,7 +308,7 @@ if __name__ == "__main__":
     logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
     logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
-    Serverfactory = StackingProtocolFactory(lambda: PEEPServerProtocol())
+    Serverfactory = StackingProtocolFactory(lambda: PEEPServerProtocol(loop))
     ptConnector= playground.Connector(protocolStack=Serverfactory)
 
     playground.setConnector("passthrough",ptConnector)
