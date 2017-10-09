@@ -1,6 +1,6 @@
 import asyncio
 import playground
-import random
+import random, logging
 from playground import getConnector
 from playground.network.packet import PacketType
 from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, BUFFER
@@ -87,7 +87,7 @@ class ShopClientProtocol(asyncio.Protocol):
         # PACKET 1 - Request to Buy packet
         startbuy = RequestToBuy()
         print("Sending Request to Buy")
-        self.transport.write(startbuy)
+        self.transport.write(startbuy.__serialize__())
 
     def data_received(self, data):
         print("Client Data_received is called")
@@ -144,8 +144,10 @@ class PeepClientTransport(StackingTransport):
 
 
     def write(self, data):
-        bytes = data.__serialize__()
+        #bytes = data.__serialize__()
         #print(self.lowerTransport())
+
+        print(data)
         self.protocol.write(bytes)
 
     def close(self):
@@ -219,6 +221,13 @@ class PEEPClient(StackingProtocol):
                 peeptransport = PeepClientTransport(self, self.transport)
                 self.higherProtocol().connection_made(peeptransport)
 
+            elif packet.Type == 5:
+
+                 print("====================Got Encapasulated Packet and Deserialized==================")
+
+                 print(packet.Data)
+                 self.higherProtocol().data_received(packet.Data)
+
             else:
                 print("======== Incorrect packet received. Closing connection!=========\n")
                 self.transport.close()
@@ -229,7 +238,23 @@ class PEEPClient(StackingProtocol):
 
 
     def write(self,data):
-        print ("=================== Writing Data down ================\n")
+        print ("=================== Writing Data down to wire from Client ================\n")
+
+        '''
+        Cencap = PEEP()
+        calcChecksum = PEEPClient()
+        Cencap.Type = 5
+        Cencap.Acknowledgement = 5555
+        Cencap.SequenceNumber = 3333
+        Cencap.Data = data
+
+        Cencap.Checksum = 0 #calcChecksum.calculateChecksum(Cencap)
+
+        print(Cencap)
+        bytes = Cencap.__serialize__()
+
+        self.transport.write(bytes)
+        '''
         self.transport.write(data)
 
 
@@ -241,6 +266,9 @@ class initiate():
 if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
+
+    logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
+    logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
     Clientfactory = StackingProtocolFactory(lambda: PEEPClient())
     ptConnector = playground.Connector(protocolStack=Clientfactory)
