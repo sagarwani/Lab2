@@ -164,7 +164,7 @@ class PeepServerTransport(StackingTransport):
         super().__init__(self.transport)
 
     def write(self, data):
-        bytes = data.__serialize__()
+        #bytes = data.__serialize__()
         self.protocol.write(bytes)
 
 global window_size
@@ -252,7 +252,30 @@ class PEEPServerProtocol(StackingProtocol):
 
             # Reset packet received
             elif pkt.Type == 5:
-                 print("================ Server received connection close from client. Closing socket.===============\n")
+
+                 print("====================Got Encapasulated Packet and Deserialized==================")
+
+                 print(pkt.Data)
+                 self.higherProtocol().data_received(pkt.Data)
+
+                 #print("================ Server received connection close from client. Closing socket.===============\n")
+
+    def write(self,data):
+        print ("=================== Writing Data down to wire from Server ================\n")
+
+        Sencap = PEEP()
+        calcChecksum = PEEPServerProtocol()
+        Sencap.Type = 5
+        Sencap.Acknowledgement = 5555
+        Sencap.SequenceNumber = 3333
+        Sencap.Data = data
+
+        Sencap.Checksum = calcChecksum.calculateChecksum(Sencap)
+
+        print(Sencap)
+        bytes = Sencap.__serialize__()
+
+        self.transport.write(bytes)
 
 
 
@@ -260,6 +283,9 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
     # Each client connection will create a new protocol instance
+
+    logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
+    logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
     Serverfactory = StackingProtocolFactory(lambda: PEEPServerProtocol())
     ptConnector= playground.Connector(protocolStack=Serverfactory)
