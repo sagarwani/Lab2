@@ -59,7 +59,7 @@ class FinishTransaction(PacketType):
 
              ]
 
-class PEEP(PacketType):
+class PEEPpacket(PacketType):
 
     DEFINITION_IDENTIFIER = "PEEP.Packet"
     DEFINITION_VERSION = "1.0"
@@ -77,6 +77,7 @@ class ShopClientProtocol(asyncio.Protocol):
     clientstate = 0
 
     def __init__(self, loop):
+        #self.loop = loop
         self.transport = None
         self.loop = loop
         self.deserializer = PacketType.Deserializer()
@@ -129,7 +130,7 @@ class ShopClientProtocol(asyncio.Protocol):
                 self.transport.close()
 
 
-    def connection_lost(self, exc):
+    def connection_lost(self,exc):
         print('\nThe ShopServer sent a connection close to the client')
         self.transport.close()
         self.transport = None
@@ -141,7 +142,6 @@ class PeepClientTransport(StackingTransport):
     def __init__(self,protocol,transport):
         self.protocol = protocol
         self.transport = transport
-
         self.exc = None
         super().__init__(self.transport)
 
@@ -151,7 +151,9 @@ class PeepClientTransport(StackingTransport):
         self.protocol.write(data)
 
     def close(self):
-        #self.loop = loop
+        self.protocol.close()
+
+    def connection_lost(self):
         self.protocol.connection_lost(self.exc)
 
 
@@ -186,7 +188,7 @@ class PEEPClient(StackingProtocol):
         self.protocol = self
 
         if self.state == 0:
-            packet = PEEP()
+            packet = PEEPpacket()
             packet.Type = 0
             packet.SequenceNumber = random.randrange(1, 1000, 1)
             packet.Acknowledgement = 0
@@ -205,29 +207,62 @@ class PEEPClient(StackingProtocol):
         self.deserializer.update(data)
         for packet in self.deserializer.nextPackets():
             checkvalue = self.checkChecksum(packet)
-            if self.state == 1 and packet.Type == 1 and checkvalue == True:
-                print("\n========================== SYN-ACK Received. Seqno= ", packet.SequenceNumber, " Ackno=", packet.Acknowledgement)
+            if self.state == 1 and packet.Type == 1:
+                if checkvalue:
+                    print("\n========================== SYN-ACK Received. Seqno= ", packet.SequenceNumber, " Ackno=", packet.Acknowledgement)
 
-                #Sending ACK
+                    #Sending ACK
 
-                ack = PEEP()
-                ack.Type = 2
-                ack.SequenceNumber = packet.Acknowledgement
-                ack.Acknowledgement = packet.SequenceNumber + 1
-                self.state += 1
-                ack.Checksum = self.calculateChecksum(ack)
-                clientpacketbytes = ack.__serialize__()
-                print ("=================== Sending ACK =================\n")
-                self.transport.write(clientpacketbytes)
+                    ack = PEEPpacket()
+                    ack.Type = 2
+                    ack.SequenceNumber = packet.Acknowledgement
+                    ack.Acknowledgement = packet.SequenceNumber + 1
+                    self.state += 1
+                    ack.Checksum = self.calculateChecksum(ack)
+                    clientpacketbytes = ack.__serialize__()
+                    print ("=================== Sending ACK =================\n")
+                    self.transport.write(clientpacketbytes)
 
-                peeptransport = PeepClientTransport(self, self.transport)
-                self.higherProtocol().connection_made(peeptransport)
+                    peeptransport = PeepClientTransport(self, self.transport)
+                    self.higherProtocol().connection_made(peeptransport)
+                else:
+                    print("Corrupt SYN-ACK packet received. Please check on server end.")
 
-            elif packet.Type == 5 and self.state == 2 and checkvalue == True:
+
+            elif packet.Type == 5:
+                if checkvalue:
 
                  print("====================Got Encapasulated Packet and Deserialized==================")
+
                  print(packet.Data)
                  self.higherProtocol().data_received(packet.Data)
+
+                else:
+                    print("Corrupt Data packet received. Please check on server end.")
+
+            elif packet.Type == 3:
+                if checkvalue:
+                    print("RIP Received from Server. Sending RIP-ACK")
+                    # RIPack
+                    ripack = PEEPpacket()
+                    self.exc=0
+                    ripack.Type = 4
+                    ripack.Acknowledgement = packet.SequenceNumber + 1
+                    ripack.SequenceNumber = 5555
+                    calcChecksum = PEEPClient(self.loop)
+                    ripack.Checksum = calcChecksum.calculateChecksum(ripack)
+                    ripz = ripack.__serialize__()
+                    self.transport.write(ripz)
+                else:
+                    print("Corrupt RIP packet received. Please check on server end.")
+
+            elif packet.Type == 4:
+                if checkvalue:
+                    print("RIP-ACK Received from Server. Closing down the connection.")
+                    self.connection_lost(self.exc)
+                else:
+                    print("Corrupt RIP-ACK packet received. Please check on server end.")
+
 
             else:
                 print("======== Incorrect packet received. Closing connection!=========\n")
@@ -238,8 +273,8 @@ class PEEPClient(StackingProtocol):
         print ("=================== Writing Data down to wire from Client ================\n")
 
 
-        Cencap = PEEP()
-        calcChecksum = PEEPClient(loop)
+        Cencap = PEEPpacket()
+        calcChecksum = PEEPClient(self.loop)
         Cencap.Type = 5
         Cencap.Acknowledgement = 5555
         Cencap.SequenceNumber = 3333
@@ -254,8 +289,18 @@ class PEEPClient(StackingProtocol):
 
         #self.transport.write(data)
 
-    def connection_lost(self, exc):
-        #self.loop = loop
+    def close(self):
+        #RIPpacket
+        rip = PEEPpacket()
+        rip.Type = 3
+        rip.Acknowledgement = 0
+        rip.SequenceNumber = 9999
+        calcChecksum = PEEPClient(self.loop)
+        rip.Checksum = calcChecksum.calculateChecksum(rip)
+        ripz = rip.__serialize__()
+        self.transport.write(ripz)
+
+    def connection_lost(self,exc):
         print ("============== PEEPClient Closing connection ===========\n")
         self.transport.close()
         self.loop.stop()
@@ -267,7 +312,8 @@ class initiate():
         self.loop = loop
 
     def send_first_packet(self):
-        return ShopClientProtocol(self.loop)
+        self.loop = loop
+        return ShopClientProtocol(loop)
 
 if __name__ == "__main__":
 
