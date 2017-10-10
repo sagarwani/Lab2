@@ -6,6 +6,7 @@ from playground.network.packet import PacketType
 from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, BUFFER
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
+import sys
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -211,14 +212,13 @@ class PEEPServerProtocol(StackingProtocol):
             return False
 
     def connection_made(self, transport):
-        print("\n================== PEEP Server Connection_made Called =========================\n")
+        print("\n================== PEEP Server Connection_made Called =========================")
         self.transport = transport
 
 
     def data_received(self, data):
-        print("\n===================== PEEP Server Data_Received called =====================\n")
+        print("\n================== PEEP Server Data_Received called ===========================")
         self.deserializer.update(data)
-        print (data)
         for pkt in self.deserializer.nextPackets():
             # Checksum Check
             # SYN from client
@@ -228,9 +228,9 @@ class PEEPServerProtocol(StackingProtocol):
                 self.serverstate += 1
                 self.clientseq = pkt.SequenceNumber
                 if checkvalue == True:
-                    print("\n===================== SYN Received. Seq= ", pkt.SequenceNumber, " Ackno=", pkt.Acknowledgement)
+                    print("\nSYN Received. Seq= ", pkt.SequenceNumber, " Ackno=", pkt.Acknowledgement)
                     #Sending SYN
-                    print("\n", pkt)
+                    #print("\n", pkt)
                     synack = PEEPpacket()
                     synack.Type = 1
                     synack.Acknowledgement = pkt.SequenceNumber + 1
@@ -238,8 +238,8 @@ class PEEPServerProtocol(StackingProtocol):
                     self.serverseq = synack.SequenceNumber
                     self.global_number_seq = self.serverseq + 1
                     synack.Checksum = self.calculateChecksum(synack)
-                    print("\n=========================== Sending SYN-ACK ========================\n")
-                    print(synack)
+                    print("\n================== Sending SYN-ACK =============================================")
+                    #print(synack)
                     packs = synack.__serialize__()
                     self.transport.write(packs)
 
@@ -250,11 +250,11 @@ class PEEPServerProtocol(StackingProtocol):
 
             elif pkt.Type == 2 and self.serverstate == 1 and pkt.SequenceNumber == self.clientseq + 1 and pkt.Acknowledgement == self.serverseq + 1:
                 # Data transmission can start
-                print("\n======================= ACK Received. Seq no=", pkt.SequenceNumber, " Ack no=", pkt.Acknowledgement)
+                print("\nACK Received. Seq no=", pkt.SequenceNumber, " Ack no=", pkt.Acknowledgement)
 
                 self.serverstate += 1
                 if checkvalue == True:
-                    print("\n================ TCP Connection successful! Client OK to send the Data now.============= \n")
+                    print("\n================== TCP Connection successful! Client OK to send the Data now.============= \n")
 
                     # calling higher connection made since we have received the ACK
 
@@ -263,21 +263,23 @@ class PEEPServerProtocol(StackingProtocol):
                     self.higherProtocol().connection_made(higherTransport)
 
                 else:
-                    print("================= Corrupted ACK packet. Please check on client end.===============\n")
+                    print("================== Corrupted ACK packet. Please check on client end.===============\n")
                     self.transport.close()
 
             # Reset packet received
             elif pkt.Type == 5 :
 
                  if checkvalue:
-                     print("====================Got Encapasulated Packet and Deserialized==================")
+                     print("================== Got Encapasulated Packet and Deserialized==================")
 
-                     print(pkt.Data)
-                     self.global_number_ack = self.update_ack(pkt.SequenceNumber)
+                     #print(pkt.Data)
+                     self.global_packet_size = sys.getsizeof(pkt.Data)
+                     print("The size of packet is:", self.global_packet_size)
+                     self.global_number_ack = self.update_ack(pkt.SequenceNumber, self.global_packet_size)
                      self.higherProtocol().data_received(pkt.Data)
 
                  else:
-                     print("================= Corrupted Data packet. Please check on client end.===============\n")
+                     print("================== Corrupted Data packet. Please check on client end.===============\n")
                      self.transport.close()
 
                  #print("================ Server received connection close from client. Closing socket.===============\n")
@@ -302,13 +304,14 @@ class PEEPServerProtocol(StackingProtocol):
             elif pkt.Type == 4 and self.serverstate == 3:
                 if checkvalue:
                     self.serverstate += 1
-                    print("RIP-ACK Received from Client. Closing down the connection.")
+                    print("RIP-ACK Received from Client. Closing down the connection.\n")
                     self.connection_lost(self.exc)
                 else:
                     print("Corrupt RIP-ACK packet received. Please check on server end.")
 
     global_number_seq = 0
     global_number_ack = 0
+    global_packet_size = 0
     count_of_function_call = 0
 
     def update_sequence(self):
@@ -317,16 +320,16 @@ class PEEPServerProtocol(StackingProtocol):
             return self.global_number_seq
         else:
             #assuming length is 10 for now
-            self.global_number_seq = self.prev_sequence_number + 10
+            self.global_number_seq = self.prev_sequence_number + self.global_packet_size
             return self.global_number_seq
 
-    def update_ack(self, received_seq_number):
+    def update_ack(self, received_seq_number, size):
         self.received_seq_number = received_seq_number
-        self.global_number_ack = self.received_seq_number + 10
+        self.global_number_ack = self.received_seq_number + size
         return self.global_number_ack
 
     def write(self,data):
-        print ("=================== Writing Data down to wire from Server ================\n")
+        print ("================== Writing Data down to wire from Server ================\n")
 
         Sencap = PEEPpacket()
         calcChecksum = PEEPServerProtocol(self.loop)
@@ -334,16 +337,16 @@ class PEEPServerProtocol(StackingProtocol):
         Sencap.SequenceNumber = self.update_sequence()
 
         self.prev_sequence_number = Sencap.SequenceNumber
-        print ("seq number" + str(Sencap.SequenceNumber))
+        print ("Seq. No:" + str(Sencap.SequenceNumber))
 
         Sencap.Acknowledgement = self.global_number_ack
-        print ("Sen Ack" + str(Sencap.Acknowledgement))
+        print ("ACK No:" + str(Sencap.Acknowledgement))
 
         Sencap.Data = data
         #Sencap.Checksum = 0
         Sencap.Checksum = calcChecksum.calculateChecksum(Sencap)
 
-        print(Sencap)
+        #print(Sencap)
         bytes = Sencap.__serialize__()
 
         self.transport.write(bytes)
@@ -361,7 +364,7 @@ class PEEPServerProtocol(StackingProtocol):
 
 
     def connection_lost(self,exc):
-        print("============== PEEPServer Closing connection ===========\n")
+        print("================== PEEPServer Closing connection ===========\n")
         self.transport.close()
         self.loop.stop()
         self.transport = None
@@ -373,8 +376,8 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     # Each client connection will create a new protocol instance
 
-    logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
-    logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
+    #logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
+    #logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
     Serverfactory = StackingProtocolFactory(lambda: PEEPServerProtocol(loop))
     ptConnector= playground.Connector(protocolStack=Serverfactory)
