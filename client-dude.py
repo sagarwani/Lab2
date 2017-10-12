@@ -7,7 +7,8 @@ from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, 
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
 import zlib
-
+import sys
+from pympler import asizeof
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -93,9 +94,7 @@ class ShopClientProtocol(asyncio.Protocol):
     def data_received(self, data):
         print("ShopClient Data_received is called")
         self.deserializer.update(data)
-        #print(data)
         for pkt in self.deserializer.nextPackets():
-            #print("Client <------------{}------------- Server".format(pkt.DEFINITION_IDENTIFIER))
 
             if isinstance(pkt, RequestItem) and self.clientstate == 0:
                 self.clientstate += 1
@@ -147,7 +146,6 @@ class PeepClientTransport(StackingTransport):
 
 
     def write(self, data):
-        print(data)
         self.protocol.write(data)
 
     def close(self):
@@ -164,6 +162,11 @@ class PEEPClient(StackingProtocol):
     count_of_function_call = 0
     first_data_seq_number = 0
     count_of_function_call_ack = 0
+    global_packet_size = 0
+    number_of_packs = 0
+    recv_window = {}
+    prev_sequence_number = 0
+    expected_ackno = 0
 
     def __init__(self, loop):
         self.transport = None
@@ -173,7 +176,6 @@ class PEEPClient(StackingProtocol):
     def calculateChecksum(self, c):
         self.c = c
         self.c.Checksum = 0
-        print(self.c)
         checkbytes = self.c.__serialize__()
         return zlib.adler32(checkbytes) & 0xffff
 
@@ -189,7 +191,7 @@ class PEEPClient(StackingProtocol):
 
 
     def connection_made(self, transport):
-        print("========PEEP Client Connection_made CALLED=========\n")
+        print("=============== PEEP Client Connection_made CALLED =========\n")
         self.transport = transport
         self.protocol = self
 
@@ -199,10 +201,9 @@ class PEEPClient(StackingProtocol):
             packet.SequenceNumber = random.randrange(1, 1000, 1)
             packet.Acknowledgement = 0
             self.state += 1
-            print("=============== Sending SYN PACKET ==================\n")
+            print("=============== Sending SYN packet ==================\n")
             packet.Checksum = self.calculateChecksum(packet)
             packs = packet.__serialize__()
-            print("\n ================ Serialized SYN ==============: \n",packs)
             self.transport.write(packs)
 
 
@@ -215,7 +216,7 @@ class PEEPClient(StackingProtocol):
             checkvalue = self.checkChecksum(packet)
             if self.state == 1 and packet.Type == 1:
                 if checkvalue:
-                    print("\n========================== SYN-ACK Received. Seqno= ", packet.SequenceNumber, " Ackno=", packet.Acknowledgement)
+                    print("SYN-ACK Received. Seqno= ", packet.SequenceNumber, " Ackno=", packet.Acknowledgement)
 
                     #Sending ACK
 
@@ -228,7 +229,7 @@ class PEEPClient(StackingProtocol):
                     self.state += 1
                     ack.Checksum = self.calculateChecksum(ack)
                     clientpacketbytes = ack.__serialize__()
-                    print ("=================== Sending ACK =================\n")
+                    print ("\n=================== Sending ACK =================\n")
                     self.transport.write(clientpacketbytes)
 
                     peeptransport = PeepClientTransport(self, self.transport)
@@ -242,12 +243,22 @@ class PEEPClient(StackingProtocol):
 
                  print("====================Got Encapasulated Packet and Deserialized==================")
 
-                 print(packet.Data)
-                 self.global_number_ack = self.update_ack(packet.SequenceNumber)
+                 #print(packet.Data)
+                 self.global_packet_size = asizeof.asizeof(packet.Data)
+                 print("The size of packet is:", self.global_packet_size)
+                 print("Seq number of incoming packet", packet.SequenceNumber)
+                 print("Ack Number of incoming packet", packet.Acknowledgement)
+                 #self.receive_window(packet)
+                 self.sendack(self.update_ack(packet.SequenceNumber, self.global_packet_size))
                  self.higherProtocol().data_received(packet.Data)
+
 
                 else:
                     print("Corrupt Data packet received. Please check on server end.")
+
+            elif packet.Type == 2:
+                if checkvalue:
+                    print("ACK Received from the server. Removing data from buffeer.")
 
             elif packet.Type == 3:
                 if checkvalue:
@@ -277,6 +288,18 @@ class PEEPClient(StackingProtocol):
                 print("======== Incorrect packet received. Closing connection!=========\n")
                 self.transport.close()
 
+    def sendack(self, ackno):
+        print ("================== Sending ACK ================\n")
+
+        ack = PEEPpacket()
+        calcChecksum = PEEPClient(self.loop)
+        ack.Type = 2
+        ack.Acknowledgement = ackno
+        print ("ACK No:" + str(ack.Acknowledgement))
+        # For debugging
+        ack.Checksum = calcChecksum.calculateChecksum(ack)
+        bytes = ack.__serialize__()
+        self.transport.write(bytes)
 
     def write(self,data):
         print ("=================== Writing Data down to wire from Client ================\n")
@@ -285,36 +308,64 @@ class PEEPClient(StackingProtocol):
         Cencap = PEEPpacket()
         calcChecksum = PEEPClient(self.loop)
         Cencap.Type = 5
-        Cencap.SequenceNumber = self.update_sequence()
-        self.prev_sequence_number = Cencap.SequenceNumber
-        print ("seq number" + str(Cencap.SequenceNumber))
-
-        Cencap.Acknowledgement = self.global_number_ack
-        #self.prev_ack_number = Cencap.SequenceNumber
-        print ("ack number" + str(Cencap.Acknowledgement))
-
+        Cencap.SequenceNumber = self.update_sequence(data)
+        self.prev_sequence_number = Cencap.SequenceNumber  #prev_sequence_number is the seq number of the packet sent by client
+        print ("SEQ No:" + str(Cencap.SequenceNumber))
+        Cencap.Acknowledgement = self.global_number_ack    #
+        print ("ACK No:" + str(Cencap.Acknowledgement))
         Cencap.Data = data
-        #Cencap.Checksum = 0
+        print ("Data is", data)
+        print ("Size of data", asizeof.asizeof(data))
         Cencap.Checksum = calcChecksum.calculateChecksum(Cencap)
 
-        print(Cencap)
         bytes = Cencap.__serialize__()
-
         self.transport.write(bytes)
 
-        #self.transport.write(data)
+    '''def receive_window(self, pkt):
+        self.number_of_packs += 1
+        self.packet = pkt
+        if self.packet.SequenceNumber == self.global_number_ack:
+            self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)  #It's actually updating the expected Seq Number
 
-    def update_sequence(self):
+            self.higherProtocol().data_received(self.packet.Data)
+
+        elif self.number_of_packs <= 5:
+            self.recv_window[self.packet.SequenceNumber] = self.packet.Data
+            sorted(self.recv_window.items())
+
+            for k, v in self.recv_window.items():
+                if k == self.global_number_ack:
+                    self.higherProtocol().data_received(v)
+                    self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)
+                    self.number_of_packs -= 1
+
+        else:
+            print ("Receive window is full! Please try after some time")
+        #sorted(self.recv_window.items())
+        #print (self.recv_window[])
+        #for k, v in self.recv_window.items():
+            #print ("printing contents of the buffer")
+            #print (k, v)'''
+
+    prev_packet_size = 0
+
+    def calculate_length(self, data):
+        self.prev_packet_size = asizeof.asizeof(data)
+
+
+    def update_sequence(self, data):
         if self.count_of_function_call == 0:
             self.count_of_function_call = 1
-            return self.global_number_seq
+            self.calculate_length(data)
+            return self.global_number_seq #for first packet this is equal to synack.ackno
         else:
-            self.global_number_seq = self.prev_sequence_number + 10
+            self.global_number_seq = self.prev_sequence_number + self.prev_packet_size
+            self.calculate_length(data)
             return self.global_number_seq
 
-    def update_ack(self, received_seq_number):
+    def update_ack(self, received_seq_number, size):
         self.received_seq_number = received_seq_number
-        self.global_number_ack = self.received_seq_number + 10
+        self.global_number_ack = self.received_seq_number + size
         return self.global_number_ack
 
     def close(self):
@@ -347,8 +398,8 @@ if __name__ == "__main__":
 
     loop = asyncio.get_event_loop()
 
-    logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
-    logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
+    #logging.getLogger().setLevel(logging.NOTSET)  # this logs *everything*
+    #logging.getLogger().addHandler(logging.StreamHandler())  # logs to stderr
 
     Clientfactory = StackingProtocolFactory(lambda: PEEPClient(loop))
     ptConnector = playground.Connector(protocolStack=Clientfactory)
