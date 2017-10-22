@@ -8,9 +8,6 @@ from playground.network.packet import PacketType
 from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, BUFFER
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
-import sys
-from pympler import asizeof
-from collections import OrderedDict
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -159,8 +156,6 @@ class PeepServerTransport(StackingTransport):
     def connection_lost(self):
         self.protocol.connection_lost(self.exc)
 
-global window_size
-window_size = 0
 
 class PEEPServerProtocol(StackingProtocol):
     serverstate = 0
@@ -178,6 +173,7 @@ class PEEPServerProtocol(StackingProtocol):
     prev_packet_size = 0
     sending_window = {}
     sending_window_count = 0
+    global_pig = 0
     keylist1 = []
 
     def __init__(self, loop):
@@ -218,11 +214,22 @@ class PEEPServerProtocol(StackingProtocol):
                 self.clientseq = pkt.SequenceNumber
                 if checkvalue == True:
                     print("\nSYN Received. Seq= ", pkt.SequenceNumber, " Ackno=", pkt.Acknowledgement)
+                    print(pkt.Data)
+
+                    if pkt.Data == b"Piggy":
+                       self.global_pig = 56
+                       print(self.global_pig)
+                       print("Choosing Piggybacking")
+                    else:
+                        print ("Choosing Selective")
+
                     synack = PEEPpacket()
                     synack.Type = 1
                     synack.Acknowledgement = pkt.SequenceNumber + 1
                     self.global_number_ack = synack.Acknowledgement
                     synack.SequenceNumber = random.randint(5000, 9999)
+                    if self.global_pig == 56:
+                        synack.Data = b"Piggy"
                     self.serverseq = synack.SequenceNumber
                     self.global_number_seq = self.serverseq + 1
                     synack.Checksum = self.calculateChecksum(synack)
@@ -263,7 +270,12 @@ class PEEPServerProtocol(StackingProtocol):
                     print("Seq number of incoming packet", pkt.SequenceNumber)
                     print("Ack Number of incoming packet", pkt.Acknowledgement)
                     #self.receive_window(pkt)
-                    self.sendack(self.update_ack(pkt.SequenceNumber,self.global_packet_size))
+
+                    print (self.global_pig)
+
+                    if self.global_pig != 56 :
+                        self.sendack(self.update_ack(pkt.SequenceNumber,self.global_packet_size))
+
                     print("Calling data received of higher protocol from PEEP")
                     self.higherProtocol().data_received(pkt.Data)
 
@@ -275,7 +287,7 @@ class PEEPServerProtocol(StackingProtocol):
 
                 #### NEED A STATE INFO SO THAT Handshake packets are not received here.
                 if checkvalue:
-                    print("ACK Received from the server. Removing data from buffeer.")
+                    print("ACK Received from the server. Removing data from buffer.")
                     self.pop_sending_window(pkt.Acknowledgement)
 
             elif pkt.Type == 3 and self.serverstate == 2:
