@@ -9,9 +9,6 @@ from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, 
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
 import zlib
-import sys
-from pympler import asizeof
-from collections import OrderedDict
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -158,6 +155,25 @@ class PeepClientTransport(StackingTransport):
         self.protocol.connection_lost(self.exc)
 
 
+class PeepClientTransport(StackingTransport):
+
+    def __init__(self,protocol,transport):
+        self.protocol = protocol
+        self.transport = transport
+        self.exc = None
+        super().__init__(self.transport)
+
+
+    def write(self, data):
+        self.protocol.write(data)
+
+    def close(self):
+        self.protocol.close()
+
+    def connection_lost(self):
+        self.protocol.connection_lost(self.exc)
+
+
 class PEEPClient(StackingProtocol):
 
     global_number_seq = 0
@@ -172,6 +188,7 @@ class PEEPClient(StackingProtocol):
     expected_ackno = 0
     sending_window = {}
     sending_window_count = 0
+    global_pig = 0
     keylist1= []
 
 
@@ -207,6 +224,7 @@ class PEEPClient(StackingProtocol):
             packet.Type = 0
             packet.SequenceNumber = random.randrange(1, 1000, 1)
             packet.Acknowledgement = 0
+            packet.Data = b"Piggy"
             self.state += 1
             print("=============== Sending SYN packet ==================\n")
             packet.Checksum = self.calculateChecksum(packet)
@@ -227,11 +245,20 @@ class PEEPClient(StackingProtocol):
 
                     #Sending ACK
 
+                    if packet.Data == b"Piggy":
+                       self.global_pig = 56
+                       print(self.global_pig)
+                       print("Choosing Piggybacking")
+                    else:
+                        print ("Choosing Selective")
+
                     ack = PEEPpacket()
                     ack.Type = 2
                     ack.SequenceNumber = packet.Acknowledgement
                     self.global_number_seq = ack.SequenceNumber
                     ack.Acknowledgement = packet.SequenceNumber + 1
+                    if self.global_pig == 56:
+                        ack.Data = b"Piggy"
                     self.global_number_ack = ack.Acknowledgement
                     self.state += 1
                     ack.Checksum = self.calculateChecksum(ack)
@@ -256,7 +283,8 @@ class PEEPClient(StackingProtocol):
                  print("Seq number of incoming packet", packet.SequenceNumber)
                  print("Ack Number of incoming packet", packet.Acknowledgement)
                  #self.receive_window(packet)
-                 self.sendack(self.update_ack(packet.SequenceNumber, self.global_packet_size))
+                 if self.global_pig != 56:
+                    self.sendack(self.update_ack(packet.SequenceNumber, self.global_packet_size))
                  self.higherProtocol().data_received(packet.Data)
 
 
@@ -307,7 +335,7 @@ class PEEPClient(StackingProtocol):
         print ("ACK No:" + str(ack.Acknowledgement))
         # For debugging
         ack.Checksum = calcChecksum.calculateChecksum(ack)
-        print(ack.Checksum)
+        #print(ack.Checksum)
         bytes = ack.__serialize__()
         self.transport.write(bytes)
 
@@ -316,10 +344,10 @@ class PEEPClient(StackingProtocol):
         i = 0
         l = 1
         udata = data
-        print("Size of data", len(data))
+        #print("Size of data", len(data))
 
         while i < len(udata):
-            print("Chunk {}". format(l))
+            #print("Chunk {}". format(l))
 
             chunk, data = data[:1024], data[1024:]
 
@@ -332,13 +360,13 @@ class PEEPClient(StackingProtocol):
             Cencap.Acknowledgement = self.global_number_ack    #
             print ("ACK No:" + str(Cencap.Acknowledgement))
             Cencap.Data = chunk
-            print ("Data is", chunk)
+            #print ("Data is", chunk)
             print ("Size of data", len(chunk))
             Cencap.Checksum = calcChecksum.calculateChecksum(Cencap)
 
 
             if self.sending_window_count <= 5:
-                print (" Entered count ")
+                #print (" Entered count ")
                 Cencap = self.update_sending_window(Cencap)
                 bytes = Cencap.__serialize__()
                 i += 1024
@@ -354,19 +382,15 @@ class PEEPClient(StackingProtocol):
         self.packet = pkt
         if self.packet.SequenceNumber == self.global_number_ack:
             self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)  #It's actually updating the expected Seq Number
-
             self.higherProtocol().data_received(self.packet.Data)
-
         elif self.number_of_packs <= 5:
             self.recv_window[self.packet.SequenceNumber] = self.packet.Data
             sorted(self.recv_window.items())
-
             for k, v in self.recv_window.items():
                 if k == self.global_number_ack:
                     self.higherProtocol().data_received(v)
                     self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)
                     self.number_of_packs -= 1
-
         else:
             print ("Receive window is full! Please try after some time")
         #sorted(self.recv_window.items())
@@ -401,31 +425,31 @@ class PEEPClient(StackingProtocol):
         self.sending_window_count += 1
         self.key = self.prev_sequence_number + self.prev_packet_size
         self.sending_window[self.key] = self.packet
-        for k,v in self.sending_window.items():
-            print ("Key is: ",k, "Packet is: ", v)
+        #for k,v in self.sending_window.items():
+            #print ("Key is: ",k, "Packet is: ", v)
 
         #self.sending_window = (sorted(self.sending_window.items()))
         keylist = self.sending_window.keys()
         self.keylist1 = sorted(keylist)
-        print("Sorted keys list is", keylist)
-        print("dic type is", type(self.sending_window))
+        #print("Sorted keys list is", keylist)
+        #print("dic type is", type(self.sending_window))
         return self.packet
 
     def pop_sending_window(self, AckNum):
-        print (" Entered Popping Values ")
+        #print (" Entered Popping Values ")
 
         self.AckNum = AckNum
         print (" Ack Number is: ", self.AckNum)
         #self.sending_window = OrderedDict(sorted(self.sending_window.items()))
-        print("Keylist1 is", self.keylist1)
+        #print("Keylist1 is", self.keylist1)
         for key in self.keylist1:
-            print ("Key is: ", key)
+            #print ("Key is: ", key)
             if (self.AckNum <= key):
-                print("Inside Acknum loo.")
-                print("The current Dictionary is", self.sending_window)
-                print("Key value to pop is", key)
+                #print("Inside Acknum loo.")
+                #print("The current Dictionary is", self.sending_window)
+                #print("Key value to pop is", key)
                 self.sending_window.pop(key)
-                print ("sending window count is",self.sending_window_count)
+                #print ("sending window count is",self.sending_window_count)
                 self.sending_window_count = self.sending_window_count - 1
             else:
                 print (" Popped all packets ")
@@ -447,7 +471,6 @@ class PEEPClient(StackingProtocol):
         print ("============== PEEPClient Closing connection ===========\n")
         self.transport.close()
         self.loop.stop()
-
 
 
 class initiate():
