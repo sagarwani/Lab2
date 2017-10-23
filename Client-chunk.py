@@ -9,6 +9,8 @@ from playground.network.packet.fieldtypes import UINT32, STRING, UINT16, UINT8, 
 from playground.network.packet.fieldtypes.attributes import Optional
 from playground.network.common.Protocol import StackingProtocol, StackingProtocolFactory, StackingTransport
 import zlib
+from threading import Timer
+import time
 
 class RequestToBuy(PacketType):
     DEFINITION_IDENTIFIER = "RequestToBuy"
@@ -155,25 +157,6 @@ class PeepClientTransport(StackingTransport):
         self.protocol.connection_lost(self.exc)
 
 
-class PeepClientTransport(StackingTransport):
-
-    def __init__(self,protocol,transport):
-        self.protocol = protocol
-        self.transport = transport
-        self.exc = None
-        super().__init__(self.transport)
-
-
-    def write(self, data):
-        self.protocol.write(data)
-
-    def close(self):
-        self.protocol.close()
-
-    def connection_lost(self):
-        self.protocol.connection_lost(self.exc)
-
-
 class PEEPClient(StackingProtocol):
 
     global_number_seq = 0
@@ -213,7 +196,6 @@ class PEEPClient(StackingProtocol):
         else:
             return False
 
-
     def connection_made(self, transport):
         print("=============== PEEP Client Connection_made CALLED =========\n")
         self.transport = transport
@@ -228,9 +210,36 @@ class PEEPClient(StackingProtocol):
             self.state += 1
             print("=============== Sending SYN packet ==================\n")
             packet.Checksum = self.calculateChecksum(packet)
-            packs = packet.__serialize__()
-            self.transport.write(packs)
+            self.syn = packet.__serialize__()
+            self.transport.write(self.syn)
+            self.Timer(0.1, self.syn_timeout)
 
+
+    #Timer Function code block starts here
+    def Timer(self, timeout, callback):
+        self._timeout = timeout
+        self._callback = callback
+        self._task = asyncio.ensure_future(self._job())
+
+    async def _job(self):
+        await asyncio.sleep(self._timeout)
+        await self._callback()
+
+    def cancel(self):
+            self._task.cancel()
+
+    #Individual packet timers
+
+    async def syn_timeout(self):
+        while self.state < 2:
+            await asyncio.sleep(0.9)
+            self.transport.write(self.syn)
+
+    async def ack_timeout(self):
+        await asyncio.sleep(1)
+        while self.state < 3:
+            await asyncio.sleep(0.9)
+            self.transport.write(self.syn)
 
     def data_received(self, data):
 
@@ -242,6 +251,7 @@ class PEEPClient(StackingProtocol):
             if self.state == 1 and packet.Type == 1:
                 if checkvalue:
                     print("SYN-ACK Received. Seqno= ", packet.SequenceNumber, " Ackno=", packet.Acknowledgement)
+                    self.cancel()
 
                     #Sending ACK
 
@@ -265,6 +275,7 @@ class PEEPClient(StackingProtocol):
                     clientpacketbytes = ack.__serialize__()
                     print ("\n=================== Sending ACK =================\n")
                     self.transport.write(clientpacketbytes)
+                    self.Timer(1, self.ack_timeout)
 
                     peeptransport = PeepClientTransport(self, self.transport)
                     self.higherProtocol().connection_made(peeptransport)
@@ -276,8 +287,10 @@ class PEEPClient(StackingProtocol):
                 if checkvalue:
 
                  print("====================Got Encapasulated Packet and Deserialized==================")
+                 self.cancel()
 
                  #print(packet.Data)
+                 self.state +=1
                  self.global_packet_size = len(packet.Data)
                  print("The size of packet is:", self.global_packet_size)
                  print("Seq number of incoming packet", packet.SequenceNumber)
@@ -471,7 +484,6 @@ class PEEPClient(StackingProtocol):
         print ("============== PEEPClient Closing connection ===========\n")
         self.transport.close()
         self.loop.stop()
-
 
 class initiate():
     def __init__(self, loop):
