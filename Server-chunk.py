@@ -442,7 +442,8 @@ class PEEPServerProtocol(StackingProtocol):
     def update_sending_window(self, packet):
         self.packet = packet
         self.sending_window_count += 1
-        self.key = self.prev_sequence_number + self.prev_packet_size
+        #self.key = self.prev_sequence_number + self.prev_packet_size
+        self.key = self.global_number_seq
         self.sending_window[self.key] = self.packet
         for k,v in self.sending_window.items():
             print ("Key is: ",k, "Packet is: ", v)
@@ -459,7 +460,7 @@ class PEEPServerProtocol(StackingProtocol):
         #self.sending_window = OrderedDict(sorted(self.sending_window.items()))
         for key in self.keylist1:
             print ("Key is: ", key)
-            if (self.AckNum <= key):
+            if (self.AckNum > key):
                 print("Key value to pop is", key)
                 self.sending_window.pop(key)
                 print ("Sending window count is",self.sending_window_count)
