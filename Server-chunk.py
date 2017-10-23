@@ -202,6 +202,25 @@ class PEEPServerProtocol(StackingProtocol):
         self.transport = transport
 
 
+    #Timer Function code block starts here
+    def Timer(self, timeout, callback):
+        self._timeout = timeout
+        self._callback = callback
+        self._task = asyncio.ensure_future(self._job())
+
+    async def _job(self):
+        await asyncio.sleep(self._timeout)
+        await self._callback()
+
+    def cancel(self):
+            self._task.cancel()
+
+    async def synackx_timeout(self):
+        while self.serverstate < 1:
+            await asyncio.sleep(0.9)
+            self.transport.write(self.syn)
+
+
     def data_received(self, data):
         print("\n================== PEEP Server Data_Received called ===========================")
         self.deserializer.update(data)
@@ -234,8 +253,9 @@ class PEEPServerProtocol(StackingProtocol):
                     self.global_number_seq = self.serverseq + 1
                     synack.Checksum = self.calculateChecksum(synack)
                     print("\n================== Sending SYN-ACK =============================================")
-                    packs = synack.__serialize__()
-                    self.transport.write(packs)
+                    synackx = synack.__serialize__()
+                    self.transport.write(synackx)
+                    self.Timer(0.1, self.synackx_timeout)
 
 
                 else:
