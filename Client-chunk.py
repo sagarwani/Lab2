@@ -308,7 +308,7 @@ class PEEPClient(StackingProtocol):
 
             elif packet.Type == 2:
 
-                if checkvalue:
+                #if checkvalue and ack_count == 1:
                     print("ACK Received from the server. Removing data from buffer.")
                     self.pop_sending_window(packet.Acknowledgement)
 
@@ -391,6 +391,7 @@ class PEEPClient(StackingProtocol):
                 print (" Sorry, window is full. ")
                 i+=1024
                 #### Put some return statement to handle this exception. Code shouldn't hang. ###
+
     def receive_window(self, pkt):
         self.number_of_packs += 1
         self.packet = pkt
@@ -477,7 +478,8 @@ class PEEPClient(StackingProtocol):
     def update_sending_window(self, packet):
         self.packet = packet
         self.sending_window_count += 1
-        self.key = self.prev_sequence_number + self.prev_packet_size
+        self.key = self.global_number_seq
+        #self.key = self.prev_sequence_number + self.prev_packet_size #removed this because it is redundant to the previous line.
         self.sending_window[self.key] = self.packet
         #for k,v in self.sending_window.items():
             #print ("Key is: ",k, "Packet is: ", v)
@@ -497,13 +499,13 @@ class PEEPClient(StackingProtocol):
         #self.sending_window = OrderedDict(sorted(self.sending_window.items()))
         #print("Keylist1 is", self.keylist1)
         for key in self.keylist1:
-            #print ("Key is: ", key)
-            if (self.AckNum <= key):
+            print ("Key is: ", key)
+            if (self.AckNum > key):
                 #print("Inside Acknum loo.")
                 #print("The current Dictionary is", self.sending_window)
                 #print("Key value to pop is", key)
                 self.sending_window.pop(key)
-                #print ("sending window count is",self.sending_window_count)
+                print ("sending window count is",self.sending_window_count)
                 self.sending_window_count = self.sending_window_count - 1
             else:
                 print (" Popped all packets ")
