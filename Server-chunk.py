@@ -289,15 +289,15 @@ class PEEPServerProtocol(StackingProtocol):
                     print("The size of packet is:", self.global_packet_size)
                     print("Seq number of incoming packet", pkt.SequenceNumber)
                     print("Ack Number of incoming packet", pkt.Acknowledgement)
-                    #self.receive_window(pkt)
+                    self.receive_window(pkt)
 
-                    print (self.global_pig)
+                    #print (self.global_pig)
 
-                    if self.global_pig != 56 :
-                        self.sendack(self.update_ack(pkt.SequenceNumber,self.global_packet_size))
+                    #if self.global_pig != 56 :
+                    #    self.sendack(self.update_ack(pkt.SequenceNumber,self.global_packet_size))
 
                     print("Calling data received of higher protocol from PEEP")
-                    self.higherProtocol().data_received(pkt.Data)
+                    #self.higherProtocol().data_received(pkt.Data)
 
                  else:
                      print("================== Corrupted Data packet. Please check on client end.===============\n")
@@ -379,6 +379,45 @@ class PEEPServerProtocol(StackingProtocol):
             #print("printing contents of the buffer")
             #print(k, v)'''
 
+    def receive_window(self, pkt):
+        self.number_of_packs += 1
+        self.packet = pkt
+        if self.packet.SequenceNumber == self.global_number_ack:
+            self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)  #It's actually updating the expected Seq Number
+            self.sendack(self.update_ack(self.packet.SequenceNumber, self.global_packet_size))
+            self.higherProtocol().data_received(self.packet.Data)
+            self.check_receive_window()
+
+        elif self.number_of_packs <= 4 and self.packet.SequenceNumber <= self.global_number_ack + (1024*3):
+            self.recv_window[self.packet.SequenceNumber] = self.packet.Data
+            self.sendack(self.global_number_ack)
+
+
+            '''
+            for k, v in self.recv_window.items():
+                if k == self.global_number_ack:
+                    self.higherProtocol().data_received(v)
+                    self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)
+                    self.number_of_packs -= 1
+            '''
+        else:
+            print ("Receive window is full or the packet has already been received!")
+        #sorted(self.recv_window.items())
+        #print (self.recv_window[])
+        #for k, v in self.recv_window.items():
+            #print ("printing contents of the buffer")
+             #print (k, v)'''
+
+    def check_receive_window(self):
+        sorted_list = []
+        sorted_list = self.recv_window.keys()
+        for k in sorted_list:
+            if k == self.global_number_ack:
+                self.packet_to_be_popped = self.recv_window[k]
+                self.sendack(self.update_ack(self.packet_to_be_popped.SequenceNumber, self.global_packet_size))
+                self.higherProtocol().data_received(self.packet_to_be_popped.Data)
+            else:
+                return
 
 
     def calculate_length(self, data):
