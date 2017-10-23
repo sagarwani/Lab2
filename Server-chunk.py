@@ -290,6 +290,7 @@ class PEEPServerProtocol(StackingProtocol):
                     print("Seq number of incoming packet", pkt.SequenceNumber)
                     print("Ack Number of incoming packet", pkt.Acknowledgement)
                     self.receive_window(pkt)
+                    self.pop_sending_window(pkt.Acknowledgement)
 
                     #print (self.global_pig)
 
@@ -384,13 +385,16 @@ class PEEPServerProtocol(StackingProtocol):
         self.packet = pkt
         if self.packet.SequenceNumber == self.global_number_ack:
             self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)  #It's actually updating the expected Seq Number
-            self.sendack(self.update_ack(self.packet.SequenceNumber, self.global_packet_size))
+            if self.global_pig != 56:
+                self.sendack(self.update_ack(self.packet.SequenceNumber, self.global_packet_size))
+            self.pop_sending_window(pkt.Acknowledgement)
             self.higherProtocol().data_received(self.packet.Data)
             self.check_receive_window()
 
         elif self.number_of_packs <= 4 and self.packet.SequenceNumber <= self.global_number_ack + (1024*3):
             self.recv_window[self.packet.SequenceNumber] = self.packet.Data
-            self.sendack(self.global_number_ack)
+            if self.global_pig != 56:
+                self.sendack(self.global_number_ack)
 
 
             '''
