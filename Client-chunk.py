@@ -298,6 +298,7 @@ class PEEPClient(StackingProtocol):
                  self.receive_window(packet)
 
 
+
                  #if self.global_pig != 56:
                  #   self.sendack(self.update_ack(packet.SequenceNumber, self.global_packet_size))
                  #self.higherProtocol().data_received(packet.Data)
@@ -308,7 +309,7 @@ class PEEPClient(StackingProtocol):
 
             elif packet.Type == 2:
 
-                #if checkvalue and ack_count == 1:
+                if checkvalue:
                     print("ACK Received from the server. Removing data from buffer.")
                     self.pop_sending_window(packet.Acknowledgement)
 
@@ -397,13 +398,16 @@ class PEEPClient(StackingProtocol):
         self.packet = pkt
         if self.packet.SequenceNumber == self.global_number_ack:
             self.global_number_ack = self.update_ack(self.packet.SequenceNumber, self.global_packet_size)  #It's actually updating the expected Seq Number
-            self.sendack(self.update_ack(self.packet.SequenceNumber, self.global_packet_size))
+            if self.global_pig != 56:
+                self.sendack(self.update_ack(self.packet.SequenceNumber, self.global_packet_size))
+            self.pop_sending_window(pkt.Acknowledgement)
             self.higherProtocol().data_received(self.packet.Data)
             self.check_receive_window()
 
         elif self.number_of_packs <= 4 and self.packet.SequenceNumber <= self.global_number_ack + (1024*3):
             self.recv_window[self.packet.SequenceNumber] = self.packet.Data
-            self.sendack(self.global_number_ack)
+            if self.global_pig != 56:
+                self.sendack(self.global_number_ack)
 
 
             '''
@@ -479,6 +483,8 @@ class PEEPClient(StackingProtocol):
         self.packet = packet
         self.sending_window_count += 1
         self.key = self.global_number_seq
+        print("Calling update_sending_Window")
+        print(self.sending_window_count)
         #self.key = self.prev_sequence_number + self.prev_packet_size #removed this because it is redundant to the previous line.
         self.sending_window[self.key] = self.packet
         #for k,v in self.sending_window.items():
